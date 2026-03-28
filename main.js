@@ -150,7 +150,7 @@ function startPolling() {
   if (pollInterval) return;
   // 즉시 한번 전송
   sendSessions();
-  pollInterval = setInterval(sendSessions, 800);
+  pollInterval = setInterval(sendSessions, 2000);
 }
 
 function stopPolling() {
@@ -160,13 +160,18 @@ function stopPolling() {
   }
 }
 
-function sendSessions() {
-  if (!win || !win.isVisible()) return;
+let sendingInProgress = false;
+
+async function sendSessions() {
+  if (!win || !win.isVisible() || sendingInProgress) return;
+  sendingInProgress = true;
   try {
-    const sessions = getSessions();
-    win.webContents.send('sessions-update', sessions);
+    const sessions = await getSessions();
+    if (win && win.isVisible()) win.webContents.send('sessions-update', sessions);
   } catch (e) {
     console.error('sessions error:', e);
+  } finally {
+    sendingInProgress = false;
   }
 }
 
