@@ -209,7 +209,24 @@ ipcMain.on('blur-hide-if-launcher', () => {
   hideWindow();
 });
 
-ipcMain.on('launch-session', (event, { sessionName, message }) => {
+ipcMain.on('launch-session', async (event, { sessionName, message }) => {
+  // 동일 이름 세션 존재 여부 확인
+  try {
+    require('child_process').execSync(`tmux has-session -t "${sessionName}" 2>/dev/null`);
+    // 존재함 → 경고
+    const { response } = await dialog.showMessageBox(win, {
+      type: 'warning',
+      title: '세션 이미 존재',
+      message: `"${sessionName}" 세션이 이미 실행 중입니다.`,
+      detail: '덮어쓰면 기존 세션이 종료됩니다.',
+      buttons: ['덮어쓰기', '취소'],
+      defaultId: 1,
+      cancelId: 1,
+    });
+    if (response === 1) return; // 취소
+  } catch {
+    // 세션 없음 → 그냥 진행
+  }
   hideWindow();
   launchNewSession(sessionName, message);
 });

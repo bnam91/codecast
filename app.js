@@ -91,7 +91,13 @@ function updateHint() {
     enterHint.innerHTML = `<span class="kbd">↵</span> 이름 확정`;
   } else if (searchQuery.trim()) {
     enterHint.classList.remove('hidden');
-    enterHint.innerHTML = `<span class="kbd">↵</span> 새 세션`;
+    const filtered = getFiltered();
+    const selected = filtered[selectedIndex];
+    if (selected) {
+      enterHint.innerHTML = `<span class="kbd">⌘↵</span> <span style="color:var(--accent)">${escapeHtml(selected.name)}</span>으로 전송`;
+    } else {
+      enterHint.innerHTML = `<span class="kbd">↵</span> 새 세션`;
+    }
   } else {
     enterHint.classList.add('hidden');
   }
