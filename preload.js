@@ -26,4 +26,7 @@ contextBridge.exposeInMainWorld('cc', {
   // 윈도우 모드 전환
   setLauncherMode: () => ipcRenderer.send('set-launcher-mode'),
   setTerminalMode: () => ipcRenderer.send('set-terminal-mode'),
+
+  // 세션 종료
+  killSession: (session) => ipcRenderer.send('kill-session', session),
 });

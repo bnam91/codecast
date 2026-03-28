@@ -238,9 +238,10 @@ html, body {
 /* 세션 목록 */
 #sessions-wrap {
   padding: 8px 0;
-  max-height: 340px;
+  flex: 1;
   overflow-y: auto;
   -webkit-app-region: no-drag;
+  min-height: 0;
 }
 
 #sessions-wrap::-webkit-scrollbar { width: 4px; }
@@ -253,6 +254,8 @@ html, body {
   color: var(--text-muted);
   letter-spacing: 0.06em;
   text-transform: uppercase;
+  -webkit-app-region: drag;
+  cursor: grab;
 }
 
 .session-item {
@@ -335,6 +338,30 @@ html, body {
 }
 
 /* 상태 뱃지 */
+.kill-btn {
+  display: none;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  cursor: pointer;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  -webkit-app-region: no-drag;
+}
+.session-item:hover .kill-btn,
+.session-item.selected .kill-btn {
+  display: flex;
+}
+.kill-btn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+
 .status-badge {
   font-size: 11px;
   font-weight: 500;

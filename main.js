@@ -195,6 +195,21 @@ ipcMain.on('close-all-pty', () => {
   ptySessions.clear();
 });
 
+// ── 세션 종료 ──────────────────────────────────────────────
+const { execSync } = require('child_process');
+
+ipcMain.on('kill-session', (_, { pid, tmuxSession }) => {
+  try {
+    if (tmuxSession) {
+      execSync(`tmux kill-session -t "${tmuxSession}" 2>/dev/null`);
+    } else if (pid) {
+      process.kill(pid, 'SIGTERM');
+    }
+  } catch (e) {
+    console.error('kill-session error:', e.message);
+  }
+});
+
 // ── 윈도우 크기 모드 전환 ──────────────────────────────────
 
 ipcMain.on('set-launcher-mode', () => {

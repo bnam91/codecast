@@ -200,7 +200,15 @@ function handleEnter(filtered) {
 }
 
 function getFiltered() {
-  if (pendingSessionName || searchQuery.startsWith('@')) return [];
+  if (pendingSessionName) return [];
+  if (searchQuery.startsWith('@')) {
+    const q = searchQuery.slice(1).toLowerCase();
+    if (!q) return sessions;
+    return sessions.filter(s =>
+      s.name.toLowerCase().includes(q) ||
+      (s.path && s.path.toLowerCase().includes(q))
+    );
+  }
   if (!searchQuery.trim()) return sessions;
   const q = searchQuery.toLowerCase();
   return sessions.filter(s =>
@@ -258,6 +266,7 @@ function renderSessions() {
         </div>
         <span class="type-icon">${s.type === 'tmux' ? 'tmux' : 'tty'}</span>
         <span class="status-badge ${s.status}">${statusLabel}</span>
+        <button class="kill-btn" data-pid="${s.pid}" data-name="${escapeHtml(s.name)}" data-tmux="${s.tmuxSession || ''}" title="세션 종료">✕</button>
       </div>
     `;
   }).join('');
@@ -267,12 +276,27 @@ function renderSessions() {
       const idx = parseInt(el.dataset.index);
       if (idx !== selectedIndex) updateSelection(idx);
     });
-    el.addEventListener('click', () => {
+    el.addEventListener('click', (e) => {
+      if (e.target.classList.contains('kill-btn')) return;
       updateSelection(parseInt(el.dataset.index));
     });
-    el.addEventListener('dblclick', () => {
+    el.addEventListener('dblclick', (e) => {
+      if (e.target.classList.contains('kill-btn')) return;
       selectedIndex = parseInt(el.dataset.index);
       activateSelected(getFiltered());
+    });
+  });
+
+  // 종료 버튼
+  listEl.querySelectorAll('.kill-btn').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const name = btn.dataset.name;
+      const pid = btn.dataset.pid;
+      const tmux = btn.dataset.tmux;
+      if (confirm(`"${name}" 세션을 종료하시겠습니까?`)) {
+        window.cc.killSession({ pid: parseInt(pid), tmuxSession: tmux || null });
+      }
     });
   });
 }
@@ -345,6 +369,13 @@ function openTermTab(session) {
   term.loadAddon(fitAddon);
   term.open(wrapper);
   term.onData(data => window.cc.ptyInput(key, data));
+  // Cmd+Shift+← → 런처로 복귀 (pty에는 전송 안 함)
+  term.onKey(({ key: k, domEvent: ev }) => {
+    if (ev.metaKey && ev.shiftKey && ev.key === 'ArrowLeft') {
+      ev.preventDefault();
+      exitTerminalMode();
+    }
+  });
 
   terms.set(key, { term, fitAddon, session, wrapper });
   renderTabs();
