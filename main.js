@@ -6,6 +6,15 @@ const { launchNewSession, focusTerminalTty, focusTmuxSession, sendToSession } = 
 let win = null;
 let pollInterval = null;
 
+// pty 세션 관리
+let pty;
+try {
+  pty = require('node-pty');
+} catch (e) {
+  console.error('node-pty 로드 실패:', e.message);
+}
+const ptySessions = new Map(); // sessionId → ptyProcess
+
 function createWindow() {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize;
 
@@ -30,7 +39,9 @@ function createWindow() {
   win.loadFile('index.html');
 
   win.on('blur', () => {
-    hideWindow();
+    // 터미널 모드일 때는 blur로 숨기지 않음
+    // 런처 모드일 때만 숨김
+    win.webContents.send('check-term-mode-for-blur');
   });
 }
 
@@ -38,6 +49,7 @@ function showWindow() {
   if (!win) return;
   const { width, height } = screen.getPrimaryDisplay().workAreaSize;
   win.setPosition(Math.floor((width - 680) / 2), Math.floor(height * 0.2));
+  win.setSize(680, 480, false);
   win.show();
   win.focus();
   win.webContents.send('window-shown');
@@ -89,6 +101,9 @@ app.whenReady().then(() => {
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
+  // 모든 pty 종료
+  ptySessions.forEach(p => { try { p.kill(); } catch(e) {} });
+  ptySessions.clear();
 });
 
 app.on('window-all-closed', (e) => {
@@ -98,6 +113,11 @@ app.on('window-all-closed', (e) => {
 // IPC 핸들러
 
 ipcMain.on('hide-window', () => hideWindow());
+
+// 런처 모드에서 blur 처리: renderer에서 현재 모드를 알려줌
+ipcMain.on('blur-hide-if-launcher', () => {
+  hideWindow();
+});
 
 ipcMain.on('launch-session', (event, { sessionName, message }) => {
   hideWindow();
@@ -118,4 +138,78 @@ ipcMain.on('send-to-session', (event, { session, message }) => {
     sendToSession(session.tmuxSession, message);
   }
   hideWindow();
+});
+
+// ── PTY IPC ──────────────────────────────────────────────
+
+ipcMain.on('open-pty', (event, session) => {
+  if (!pty) {
+    win.webContents.send('pty-error', 'node-pty를 로드할 수 없습니다');
+    return;
+  }
+  const key = session.tmuxSession || String(session.pid);
+  if (ptySessions.has(key)) {
+    win.webContents.send('pty-ready', key);
+    return;
+  }
+  const cols = 120, rows = 30;
+  const shell = '/bin/zsh';
+  const args = session.tmuxSession ? ['-c', `tmux attach -t "${session.tmuxSession}"`] : [];
+
+  try {
+    const p = pty.spawn(shell, args, {
+      name: 'xterm-256color', cols, rows,
+      cwd: session.path || process.env.HOME,
+      env: process.env,
+    });
+    ptySessions.set(key, p);
+    p.onData(data => {
+      if (win) win.webContents.send('pty-data', { key, data });
+    });
+    p.onExit(() => {
+      ptySessions.delete(key);
+      if (win) win.webContents.send('pty-exit', key);
+    });
+    win.webContents.send('pty-ready', key);
+  } catch (e) {
+    console.error('pty spawn 실패:', e);
+    win.webContents.send('pty-error', e.message);
+  }
+});
+
+ipcMain.on('pty-input', (_, { key, data }) => {
+  ptySessions.get(key)?.write(data);
+});
+
+ipcMain.on('pty-resize', (_, { key, cols, rows }) => {
+  try { ptySessions.get(key)?.resize(cols, rows); } catch(e) {}
+});
+
+ipcMain.on('close-pty', (_, key) => {
+  try { ptySessions.get(key)?.kill(); } catch(e) {}
+  ptySessions.delete(key);
+});
+
+ipcMain.on('close-all-pty', () => {
+  ptySessions.forEach(p => { try { p.kill(); } catch(e) {} });
+  ptySessions.clear();
+});
+
+// ── 윈도우 크기 모드 전환 ──────────────────────────────────
+
+ipcMain.on('set-launcher-mode', () => {
+  if (!win) return;
+  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+  win.setResizable(true);
+  win.setSize(680, 480, true);
+  win.setPosition(Math.floor((width - 680) / 2), Math.floor(height * 0.2), true);
+  win.setResizable(false);
+});
+
+ipcMain.on('set-terminal-mode', () => {
+  if (!win) return;
+  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+  win.setResizable(true);
+  win.setSize(1000, 680, true);
+  win.setPosition(Math.floor((width - 1000) / 2), Math.floor(height * 0.15), true);
 });
