@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <title>Claude Commander</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="node_modules/xterm/css/xterm.css">
 </head>
 <body>
   <div id="panel">
@@ -40,6 +41,15 @@
       </div>
     </div>
 
+    <!-- 인라인 터미널 미리보기 -->
+    <div id="terminal-section" class="hidden">
+      <div id="terminal-header">
+        <span id="terminal-session-name"></span>
+        <span class="type-icon" id="terminal-type-badge"></span>
+      </div>
+      <div id="terminal-container"></div>
+    </div>
+
     <!-- 하단 힌트 -->
     <div id="footer">
       <span><span class="kbd">↵</span> 선택</span>
@@ -48,6 +58,8 @@
     </div>
   </div>
 
+  <script src="node_modules/xterm/lib/xterm.js"></script>
+  <script src="node_modules/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

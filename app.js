@@ -3,6 +3,12 @@ let selectedIndex = 0;
 let searchQuery = '';
 let pendingSessionName = null; // @이름 입력 후 대기 상태
 
+// 인라인 터미널 미리보기 상태
+let terminalOpen = false;
+let term = null;
+let fitAddon = null;
+let activePreviewSession = null;
+
 const searchEl = document.getElementById('search');
 const listEl = document.getElementById('sessions-list');
 const enterHint = document.getElementById('enter-hint');
@@ -30,6 +36,10 @@ function resetState() {
   sessionChipName.textContent = '';
   updateHint();
   renderSessions();
+  // 터미널 미리보기 닫기 (창 초기화 시)
+  if (terminalOpen) {
+    closeTerminalPreview();
+  }
 }
 
 // 입력 이벤트
@@ -67,6 +77,8 @@ document.addEventListener('keydown', (e) => {
       if (pendingSessionName) {
         // @이름 입력 취소
         resetState();
+      } else if (terminalOpen) {
+        closeTerminalPreview();
       } else {
         window.cc.hide();
       }
@@ -206,8 +218,13 @@ function renderSessions() {
     });
 
     el.addEventListener('click', () => {
-      selectedIndex = parseInt(el.dataset.index);
+      const idx = parseInt(el.dataset.index);
+      selectedIndex = idx;
       renderSessions();
+      // 단일 클릭 → 인라인 터미널 미리보기 열기
+      if (filtered[idx]) {
+        openTerminalPreview(filtered[idx]);
+      }
     });
 
     el.addEventListener('dblclick', () => {
@@ -240,4 +257,63 @@ function scrollToSelected() {
 
 function escapeHtml(s) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// 인라인 터미널 미리보기
+
+function openTerminalPreview(session) {
+  const section = document.getElementById('terminal-section');
+  const container = document.getElementById('terminal-container');
+  const nameEl = document.getElementById('terminal-session-name');
+  const badgeEl = document.getElementById('terminal-type-badge');
+
+  // 같은 세션 다시 클릭하면 닫기
+  if (activePreviewSession && activePreviewSession.pid === session.pid && terminalOpen) {
+    closeTerminalPreview();
+    return;
+  }
+
+  activePreviewSession = session;
+  nameEl.textContent = session.name;
+  badgeEl.textContent = session.type === 'tmux' ? 'tmux' : 'tty';
+
+  // xterm 초기화 (처음에만)
+  if (!term) {
+    term = new Terminal({
+      theme: { background: '#0d0d0f', foreground: '#e4e4e7', cursor: '#a78bfa' },
+      fontSize: 12,
+      fontFamily: 'Menlo, Monaco, monospace',
+      cursorBlink: true,
+      scrollback: 1000,
+    });
+    fitAddon = new FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(container);
+    term.onData(data => window.cc.ptyInput(data));
+    window.cc.onPtyData(data => term.write(data));
+    window.cc.onPtyExit(() => {
+      term.write('\r\n\x1b[90m[세션 종료]\x1b[0m\r\n');
+    });
+  } else {
+    term.reset();
+  }
+
+  section.classList.remove('hidden');
+  window.cc.resizeWindow(720);
+  terminalOpen = true;
+
+  setTimeout(() => {
+    fitAddon.fit();
+    const { cols, rows } = term;
+    window.cc.ptyResize(cols, rows);
+    window.cc.openPty(session);
+  }, 50);
+}
+
+function closeTerminalPreview() {
+  window.cc.closePty();
+  document.getElementById('terminal-section').classList.add('hidden');
+  window.cc.resizeWindow(480);
+  terminalOpen = false;
+  activePreviewSession = null;
 }

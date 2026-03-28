@@ -2,9 +2,11 @@ const { app, BrowserWindow, globalShortcut, ipcMain, screen } = require('electro
 const path = require('path');
 const { getSessions } = require('./lib/sessions');
 const { launchNewSession, focusTerminalTty, focusTmuxSession, sendToSession } = require('./lib/launcher');
+const pty = require('node-pty');
 
 let win = null;
 let pollInterval = null;
+let currentPty = null;
 
 function createWindow() {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize;
@@ -46,7 +48,14 @@ function showWindow() {
 
 function hideWindow() {
   if (!win) return;
+  // pty 종료
+  if (currentPty) {
+    currentPty.kill();
+    currentPty = null;
+  }
   win.hide();
+  // 창 크기 원래대로 복원
+  win.setSize(680, 480, false);
   stopPolling();
 }
 
@@ -118,4 +127,49 @@ ipcMain.on('send-to-session', (event, { session, message }) => {
     sendToSession(session.tmuxSession, message);
   }
   hideWindow();
+});
+
+// PTY IPC 핸들러
+
+ipcMain.on('open-pty', (event, session) => {
+  if (currentPty) { currentPty.kill(); currentPty = null; }
+
+  const cols = 90, rows = 18;
+  const shell = process.env.SHELL || '/bin/zsh';
+  const args = session.tmuxSession
+    ? ['-c', `tmux attach -t "${session.tmuxSession}"`]
+    : [];
+
+  currentPty = pty.spawn(shell, args, {
+    name: 'xterm-256color',
+    cols,
+    rows,
+    cwd: session.path || process.env.HOME,
+    env: process.env,
+  });
+
+  currentPty.onData(data => {
+    if (win) win.webContents.send('pty-data', data);
+  });
+  currentPty.onExit(() => {
+    if (win) win.webContents.send('pty-exit');
+    currentPty = null;
+  });
+});
+
+ipcMain.on('pty-input', (_, data) => {
+  if (currentPty) currentPty.write(data);
+});
+
+ipcMain.on('pty-resize', (_, { cols, rows }) => {
+  if (currentPty) currentPty.resize(cols, rows);
+});
+
+ipcMain.on('close-pty', () => {
+  if (currentPty) { currentPty.kill(); currentPty = null; }
+});
+
+ipcMain.on('resize-window', (_, height) => {
+  if (!win) return;
+  win.setSize(680, height, true);
 });
