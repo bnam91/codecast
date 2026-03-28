@@ -3,22 +3,61 @@ let selectedIndex = 0;
 let searchQuery = '';
 let pendingSessionName = null; // @이름 입력 후 대기 상태
 
+// 터미널 모드 상태
+let termMode = false;
+const terms = new Map(); // key → { term, fitAddon, session, wrapper }
+let activeTermKey = null;
+
 const searchEl = document.getElementById('search');
 const listEl = document.getElementById('sessions-list');
 const enterHint = document.getElementById('enter-hint');
 const sessionChip = document.getElementById('session-chip');
 const sessionChipName = document.getElementById('session-chip-name');
 
-// 세션 업데이트 수신
+// blur 처리: 런처 모드일 때만 숨김
+window.cc.onCheckTermModeForBlur(() => {
+  if (!termMode) {
+    window.cc.blurHideIfLauncher();
+  }
+});
+
+// 세션 업데이트 수신 — 데이터 변경 시만 리렌더
 window.cc.onSessionsUpdate((data) => {
+  const changed = JSON.stringify(data) !== JSON.stringify(sessions);
   sessions = data;
-  renderSessions();
+  if (changed) renderSessions();
 });
 
 // 창이 열릴 때 초기화
 window.cc.onWindowShown(() => {
   resetState();
   setTimeout(() => searchEl.focus(), 50);
+});
+
+// PTY 이벤트 수신
+window.cc.onPtyData(({ key, data }) => {
+  terms.get(key)?.term.write(data);
+});
+
+window.cc.onPtyExit((key) => {
+  const t = terms.get(key);
+  if (t) {
+    t.term.write('\r\n\x1b[90m[세션 종료]\x1b[0m\r\n');
+  }
+});
+
+window.cc.onPtyReady((key) => {
+  const t = terms.get(key);
+  if (t) {
+    setTimeout(() => {
+      t.fitAddon.fit();
+      window.cc.ptyResize(key, t.term.cols, t.term.rows);
+    }, 100);
+  }
+});
+
+window.cc.onPtyError((msg) => {
+  console.error('PTY 오류:', msg);
 });
 
 function resetState() {
@@ -58,22 +97,44 @@ function updateHint() {
   }
 }
 
+// 선택만 바꿀 때 — DOM 재생성 없이 클래스만 교체
+function updateSelection(newIndex) {
+  const items = listEl.querySelectorAll('.session-item');
+  if (!items.length) return;
+  items[selectedIndex]?.classList.remove('selected');
+  selectedIndex = Math.max(0, Math.min(newIndex, items.length - 1));
+  items[selectedIndex]?.classList.add('selected');
+  items[selectedIndex]?.scrollIntoView({ block: 'nearest' });
+}
+
+// 좌측 방향키 연속 2회 감지
+let lastLeftArrowTime = 0;
+
 // 키보드 네비게이션
 document.addEventListener('keydown', (e) => {
+  // 터미널 모드에서는 좌측 방향키 2회만 처리
+  if (termMode) {
+    if (e.key === 'ArrowLeft') {
+      const now = Date.now();
+      if (now - lastLeftArrowTime < 400) {
+        exitTerminalMode();
+        lastLeftArrowTime = 0;
+      } else {
+        lastLeftArrowTime = now;
+      }
+    }
+    return;
+  }
+
   const filtered = getFiltered();
 
   switch (e.key) {
     case 'Escape':
-      if (pendingSessionName) {
-        // @이름 입력 취소
-        resetState();
-      } else {
-        window.cc.hide();
-      }
+      if (pendingSessionName) resetState();
+      else window.cc.hide();
       break;
 
     case 'Backspace':
-      // 입력창 비어있고 세션 이름 대기 중이면 → 이름 취소
       if (!searchQuery && pendingSessionName) {
         pendingSessionName = null;
         sessionChip.classList.add('hidden');
@@ -84,22 +145,25 @@ document.addEventListener('keydown', (e) => {
 
     case 'ArrowDown':
       e.preventDefault();
-      selectedIndex = Math.min(selectedIndex + 1, filtered.length - 1);
-      renderSessions();
-      scrollToSelected();
+      updateSelection(selectedIndex + 1);
       break;
 
     case 'ArrowUp':
       e.preventDefault();
-      selectedIndex = Math.max(selectedIndex - 1, 0);
-      renderSessions();
-      scrollToSelected();
+      updateSelection(selectedIndex - 1);
+      break;
+
+    case 'ArrowRight':
+      // 입력창이 비어있을 때만 → Enter와 동일
+      if (!searchQuery) {
+        e.preventDefault();
+        handleEnter(filtered);
+      }
       break;
 
     case 'Enter':
       e.preventDefault();
       if (e.metaKey) {
-        // ⌘+Enter: 선택된 세션에 메시지 전송
         if (selectedIndex >= 0 && filtered[selectedIndex] && searchQuery.trim()) {
           window.cc.sendToSession(filtered[selectedIndex], searchQuery.trim());
         }
@@ -136,7 +200,6 @@ function handleEnter(filtered) {
 }
 
 function getFiltered() {
-  // @이름 입력 중이거나 세션 대기 중이면 목록 숨김
   if (pendingSessionName || searchQuery.startsWith('@')) return [];
   if (!searchQuery.trim()) return sessions;
   const q = searchQuery.toLowerCase();
@@ -201,18 +264,15 @@ function renderSessions() {
 
   listEl.querySelectorAll('.session-item').forEach((el) => {
     el.addEventListener('mouseenter', () => {
-      selectedIndex = parseInt(el.dataset.index);
-      renderSessions();
+      const idx = parseInt(el.dataset.index);
+      if (idx !== selectedIndex) updateSelection(idx);
     });
-
     el.addEventListener('click', () => {
-      selectedIndex = parseInt(el.dataset.index);
-      renderSessions();
+      updateSelection(parseInt(el.dataset.index));
     });
-
     el.addEventListener('dblclick', () => {
       selectedIndex = parseInt(el.dataset.index);
-      activateSelected(filtered);
+      activateSelected(getFiltered());
     });
   });
 }
@@ -226,10 +286,151 @@ function activateSelected(filtered) {
     if (searchQuery.trim()) {
       window.cc.sendToSession(filtered[selectedIndex], searchQuery.trim());
     } else {
-      window.cc.focusSession(filtered[selectedIndex]);
+      // 터미널 모드로 진입 (Enter 또는 더블클릭)
+      enterTerminalMode(filtered[selectedIndex]);
     }
   }
 }
+
+// ── 터미널 모드 ──────────────────────────────────────────────
+
+function enterTerminalMode(session) {
+  termMode = true;
+  document.getElementById('launcher-view').classList.add('hidden');
+  document.getElementById('terminal-view').classList.remove('hidden');
+  window.cc.setTerminalMode();
+  openTermTab(session);
+}
+
+function exitTerminalMode() {
+  termMode = false;
+  document.getElementById('terminal-view').classList.add('hidden');
+  document.getElementById('launcher-view').classList.remove('hidden');
+  window.cc.setLauncherMode();
+  // pty는 종료하지 않고 유지 (다시 터미널 모드 진입 시 재사용)
+  setTimeout(() => searchEl.focus(), 100);
+}
+
+function openTermTab(session) {
+  const key = session.tmuxSession || String(session.pid || session.name);
+
+  // 이미 탭 있으면 활성화
+  if (terms.has(key)) {
+    activateTab(key);
+    window.cc.openPty(session);
+    return;
+  }
+
+  // 새 xterm 인스턴스
+  const container = document.getElementById('term-container');
+  const wrapper = document.createElement('div');
+  wrapper.style.cssText = 'width:100%;height:100%;position:absolute;top:0;left:0;';
+  wrapper.id = `term-wrap-${key}`;
+  container.appendChild(wrapper);
+
+  const term = new Terminal({
+    theme: {
+      background: '#0d0d0f',
+      foreground: '#e4e4e7',
+      cursor: '#a78bfa',
+      selectionBackground: 'rgba(139,92,246,0.3)',
+    },
+    fontSize: 13,
+    fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+    cursorBlink: true,
+    scrollback: 5000,
+    allowTransparency: true,
+  });
+  const fitAddon = new FitAddon.FitAddon();
+  term.loadAddon(fitAddon);
+  term.open(wrapper);
+  term.onData(data => window.cc.ptyInput(key, data));
+
+  terms.set(key, { term, fitAddon, session, wrapper });
+  renderTabs();
+  activateTab(key);
+  window.cc.openPty(session);
+}
+
+function activateTab(key) {
+  activeTermKey = key;
+  terms.forEach((t, k) => {
+    t.wrapper.style.display = k === key ? 'block' : 'none';
+  });
+  renderTabs();
+  setTimeout(() => {
+    const t = terms.get(key);
+    if (t) {
+      t.fitAddon.fit();
+      window.cc.ptyResize(key, t.term.cols, t.term.rows);
+      t.term.focus();
+    }
+  }, 50);
+}
+
+function renderTabs() {
+  const tabsEl = document.getElementById('term-tabs');
+  tabsEl.innerHTML = [...terms.entries()].map(([key, { session }]) => `
+    <div class="term-tab ${key === activeTermKey ? 'active' : ''}" data-key="${key}">
+      <div class="status-dot idle"></div>
+      <span>${escapeHtml(session.name)}</span>
+      <span class="tab-close" data-close="${key}">✕</span>
+    </div>
+  `).join('');
+
+  tabsEl.querySelectorAll('.term-tab').forEach(el => {
+    el.addEventListener('click', (e) => {
+      const closeKey = e.target.dataset.close;
+      if (closeKey) {
+        e.stopPropagation();
+        closeTab(closeKey);
+      } else {
+        activateTab(el.dataset.key);
+      }
+    });
+  });
+}
+
+function closeTab(key) {
+  window.cc.closePty(key);
+  const t = terms.get(key);
+  if (t) {
+    t.term.dispose();
+    t.wrapper.remove();
+    terms.delete(key);
+  }
+  if (activeTermKey === key) {
+    const remaining = [...terms.keys()];
+    if (remaining.length > 0) {
+      activateTab(remaining[remaining.length - 1]);
+    } else {
+      exitTerminalMode();
+    }
+  } else {
+    renderTabs();
+  }
+}
+
+// 뒤로가기 버튼
+document.getElementById('btn-back').addEventListener('click', exitTerminalMode);
+
+// 새 탭 버튼: 런처로 돌아가서 세션 선택
+document.getElementById('btn-new-tab').addEventListener('click', () => {
+  exitTerminalMode();
+});
+
+// 창 리사이즈 시 active term fit
+window.addEventListener('resize', () => {
+  if (termMode && activeTermKey) {
+    const t = terms.get(activeTermKey);
+    if (t) {
+      t.fitAddon.fit();
+      window.cc.ptyResize(activeTermKey, t.term.cols, t.term.rows);
+    }
+  }
+});
+
+// ── 유틸 ──────────────────────────────────────────────────
 
 function scrollToSelected() {
   const items = listEl.querySelectorAll('.session-item');
@@ -239,5 +440,6 @@ function scrollToSelected() {
 }
 
 function escapeHtml(s) {
+  if (!s) return '';
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
