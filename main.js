@@ -1,5 +1,6 @@
 const { app, BrowserWindow, globalShortcut, ipcMain, screen, dialog, Tray, Menu, nativeImage } = require('electron');
 const path = require('path');
+const { execSync } = require('child_process');
 const { getSessions } = require('./lib/sessions');
 const { launchNewSession, focusTerminalTty, focusTmuxSession, sendToSession } = require('./lib/launcher');
 
@@ -190,7 +191,6 @@ app.whenReady().then(async () => {
       showWindow();
     }
   });
-  console.log('Ctrl+Shift+Space 단축키 등록:', registered ? '성공' : '실패');
 });
 
 app.on('will-quit', () => {
@@ -217,7 +217,7 @@ ipcMain.on('blur-hide-if-launcher', () => {
 ipcMain.on('launch-session', async (event, { sessionName, message }) => {
   // 동일 이름 세션 존재 여부 확인
   try {
-    require('child_process').execSync(`tmux has-session -t "${sessionName}" 2>/dev/null`);
+    execSync(`tmux has-session -t "${sessionName}" 2>/dev/null`);
     // 존재함 → 경고
     const { response } = await dialog.showMessageBox(win, {
       type: 'warning',
@@ -229,6 +229,8 @@ ipcMain.on('launch-session', async (event, { sessionName, message }) => {
       cancelId: 1,
     });
     if (response === 1) return; // 취소
+    // 기존 세션 kill
+    try { execSync(`tmux kill-session -t "${sessionName}" 2>/dev/null`); } catch {}
   } catch {
     // 세션 없음 → 그냥 진행
   }
@@ -308,7 +310,17 @@ ipcMain.on('close-all-pty', () => {
 });
 
 // ── 세션 종료 ──────────────────────────────────────────────
-const { execSync } = require('child_process');
+ipcMain.handle('confirm-kill', async (_, name) => {
+  const { response } = await dialog.showMessageBox(win, {
+    type: 'warning',
+    title: '세션 종료',
+    message: `"${name}" 세션을 종료하시겠습니까?`,
+    buttons: ['종료', '취소'],
+    defaultId: 1,
+    cancelId: 1,
+  });
+  return response === 0;
+});
 
 ipcMain.on('kill-session', (_, { pid, tmuxSession }) => {
   try {

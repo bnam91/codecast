@@ -29,4 +29,5 @@ contextBridge.exposeInMainWorld('cc', {
 
   // 세션 종료
   killSession: (session) => ipcRenderer.send('kill-session', session),
+  confirmKill: (name) => ipcRenderer.invoke('confirm-kill', name),
 });

@@ -296,12 +296,13 @@ function renderSessions() {
 
   // 종료 버튼
   listEl.querySelectorAll('.kill-btn').forEach((btn) => {
-    btn.addEventListener('click', (e) => {
+    btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       const name = btn.dataset.name;
       const pid = btn.dataset.pid;
       const tmux = btn.dataset.tmux;
-      if (confirm(`"${name}" 세션을 종료하시겠습니까?`)) {
+      const confirmed = await window.cc.confirmKill(name);
+      if (confirmed) {
         window.cc.killSession({ pid: parseInt(pid), tmuxSession: tmux || null });
       }
     });
@@ -321,6 +322,7 @@ function activateSelected(filtered) {
       enterTerminalMode(filtered[selectedIndex]);
     }
   }
+  // else: filtered is empty (no sessions loaded yet) — do nothing silently
 }
 
 // ── 터미널 모드 ──────────────────────────────────────────────
@@ -470,12 +472,6 @@ window.addEventListener('resize', () => {
 
 // ── 유틸 ──────────────────────────────────────────────────
 
-function scrollToSelected() {
-  const items = listEl.querySelectorAll('.session-item');
-  if (items[selectedIndex]) {
-    items[selectedIndex].scrollIntoView({ block: 'nearest' });
-  }
-}
 
 function escapeHtml(s) {
   if (!s) return '';
