@@ -263,6 +263,7 @@ function renderSessions() {
         <div class="session-info">
           <div class="session-name">${escapeHtml(s.name)}</div>
           ${pathDisplay ? `<div class="session-path">${escapeHtml(pathDisplay)}</div>` : ''}
+          ${s.lastLine ? `<div class="session-preview">${escapeHtml(s.lastLine)}</div>` : ''}
         </div>
         <span class="type-icon">${s.type === 'tmux' ? 'tmux' : 'tty'}</span>
         <span class="status-badge ${s.status}">${statusLabel}</span>
@@ -403,7 +404,7 @@ function renderTabs() {
   const tabsEl = document.getElementById('term-tabs');
   tabsEl.innerHTML = [...terms.entries()].map(([key, { session }]) => `
     <div class="term-tab ${key === activeTermKey ? 'active' : ''}" data-key="${key}">
-      <div class="status-dot idle"></div>
+      <div class="status-dot ${session.status || 'idle'}"></div>
       <span>${escapeHtml(session.name)}</span>
       <span class="tab-close" data-close="${key}">✕</span>
     </div>

@@ -1,10 +1,11 @@
-const { app, BrowserWindow, globalShortcut, ipcMain, screen } = require('electron');
+const { app, BrowserWindow, globalShortcut, ipcMain, screen, dialog, Tray, Menu, nativeImage } = require('electron');
 const path = require('path');
 const { getSessions } = require('./lib/sessions');
 const { launchNewSession, focusTerminalTty, focusTmuxSession, sendToSession } = require('./lib/launcher');
 
 let win = null;
 let pollInterval = null;
+let tray = null;
 
 // pty 세션 관리
 let pty;
@@ -14,6 +15,88 @@ try {
   console.error('node-pty 로드 실패:', e.message);
 }
 const ptySessions = new Map(); // sessionId → ptyProcess
+
+async function checkForUpdates(mainWindow) {
+  try {
+    const { default: ReleaseUpdater } = await import('./submodules/module_update_auto/release_updater.js');
+    const { default: updateConfig } = await import('./submodules/module_update_auto/config.js');
+    const updater = new ReleaseUpdater('bnam91', 'codecast', updateConfig.versionFile);
+    const current = updater.getCurrentVersion();
+    const latest = await updater.getLatestRelease();
+    if (!latest || current === latest.tag_name) return;
+
+    const { response } = await dialog.showMessageBox(mainWindow, {
+      type: 'info',
+      title: '업데이트 알림',
+      message: `새 버전이 있습니다: ${latest.tag_name}`,
+      detail: `현재: ${current ?? '없음'}\n\n업데이트 후 앱을 재시작하세요.`,
+      buttons: ['지금 업데이트', '나중에'],
+      defaultId: 0,
+    });
+
+    if (response === 0) {
+      await updater.performUpdate(latest);
+      const { response: restartRes } = await dialog.showMessageBox(mainWindow, {
+        type: 'info',
+        title: '업데이트 완료',
+        message: `${latest.tag_name} 업데이트가 완료됐습니다.`,
+        detail: '지금 앱을 재시작할까요?',
+        buttons: ['지금 재시작', '나중에'],
+        defaultId: 0,
+      });
+      if (restartRes === 0) {
+        app.relaunch();
+        app.exit(0);
+      }
+    }
+  } catch (e) {
+    console.error('업데이트 체크 오류:', e.message);
+  }
+}
+
+function createTray() {
+  // 16x16 흰색 사각형 PNG (base64) - templateImage: true 로 macOS 자동 스타일 적용
+  const iconBase64 =
+    'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAFElEQVQ4jWNgYGD4' +
+    'TwABAAD//wMAAwAB/2gDHgAAAABJRU5ErkJggg==';
+  const icon = nativeImage.createFromDataURL(`data:image/png;base64,${iconBase64}`);
+  icon.setTemplateImage(true);
+
+  tray = new Tray(icon);
+  tray.setToolTip('Claude Commander');
+
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: 'Show/Hide',
+      click: () => {
+        if (win && win.isVisible()) {
+          hideWindow();
+        } else {
+          showWindow();
+        }
+      },
+    },
+    { type: 'separator' },
+    {
+      label: 'Quit',
+      click: () => {
+        app.quit();
+      },
+    },
+  ]);
+
+  tray.on('click', () => {
+    if (win && win.isVisible()) {
+      hideWindow();
+    } else {
+      showWindow();
+    }
+  });
+
+  tray.on('right-click', () => {
+    tray.popUpContextMenu(contextMenu);
+  });
+}
 
 function createWindow() {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize;
@@ -54,6 +137,7 @@ function showWindow() {
   win.focus();
   win.webContents.send('window-shown');
   startPolling();
+  sendSessions();  // 즉시 한 번 전송 (최대 800ms 대기 제거)
 }
 
 function hideWindow() {
@@ -86,21 +170,27 @@ function sendSessions() {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   createWindow();
+  createTray();
+
+  // 자동업데이트 체크
+  checkForUpdates(win);
 
   // Option+Space 글로벌 단축키
-  globalShortcut.register('Alt+Space', () => {
+  const registered = globalShortcut.register('Control+Shift+Space', () => {
     if (win && win.isVisible()) {
       hideWindow();
     } else {
       showWindow();
     }
   });
+  console.log('Ctrl+Shift+Space 단축키 등록:', registered ? '성공' : '실패');
 });
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
+  tray?.destroy();
   // 모든 pty 종료
   ptySessions.forEach(p => { try { p.kill(); } catch(e) {} });
   ptySessions.clear();

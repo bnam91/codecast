@@ -261,8 +261,8 @@ html, body {
 .session-item {
   display: flex;
   align-items: center;
-  padding: 0 12px;
-  height: 52px;
+  padding: 6px 12px;
+  min-height: 52px;
   gap: 12px;
   cursor: pointer;
   border-radius: 8px;
@@ -335,6 +335,16 @@ html, body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.session-preview {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: 'Menlo', monospace;
+  opacity: 0.7;
 }
 
 /* 상태 뱃지 */
