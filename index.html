@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Claude Commander</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="panel">
+    <!-- 입력창 -->
+    <div id="input-wrap">
+      <div id="input-icon">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+      </div>
+      <div id="session-chip" class="hidden">
+        <span id="session-chip-name"></span>
+      </div>
+      <input
+        id="search"
+        type="text"
+        placeholder="Claude에게 물어보거나 @이름 으로 새 세션..."
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <div id="enter-hint" class="hidden">
+        <span class="kbd">↵</span> 새 세션
+      </div>
+    </div>
+
+    <!-- 구분선 -->
+    <div id="divider"></div>
+
+    <!-- 세션 목록 -->
+    <div id="sessions-wrap">
+      <div id="sessions-header">실행 중인 세션</div>
+      <div id="sessions-list">
+        <div class="empty-state">세션을 불러오는 중...</div>
+      </div>
+    </div>
+
+    <!-- 하단 힌트 -->
+    <div id="footer">
+      <span><span class="kbd">↵</span> 선택</span>
+      <span><span class="kbd">⌘↵</span> 메시지 전송</span>
+      <span><span class="kbd">Esc</span> 닫기</span>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
