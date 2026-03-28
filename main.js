@@ -89,8 +89,8 @@ function sendSessions() {
 app.whenReady().then(() => {
   createWindow();
 
-  // Alt+Space 글로벌 단축키
-  globalShortcut.register('Alt+Space', () => {
+  // Ctrl+Shift+Space 글로벌 단축키
+  globalShortcut.register('Ctrl+Shift+Space', () => {
     if (win && win.isVisible()) {
       hideWindow();
     } else {

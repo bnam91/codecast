@@ -21,10 +21,11 @@ window.cc.onCheckTermModeForBlur(() => {
   }
 });
 
-// 세션 업데이트 수신
+// 세션 업데이트 수신 — 데이터 변경 시만 리렌더
 window.cc.onSessionsUpdate((data) => {
+  const changed = JSON.stringify(data) !== JSON.stringify(sessions);
   sessions = data;
-  renderSessions();
+  if (changed) renderSessions();
 });
 
 // 창이 열릴 때 초기화
@@ -96,12 +97,31 @@ function updateHint() {
   }
 }
 
+// 선택만 바꿀 때 — DOM 재생성 없이 클래스만 교체
+function updateSelection(newIndex) {
+  const items = listEl.querySelectorAll('.session-item');
+  if (!items.length) return;
+  items[selectedIndex]?.classList.remove('selected');
+  selectedIndex = Math.max(0, Math.min(newIndex, items.length - 1));
+  items[selectedIndex]?.classList.add('selected');
+  items[selectedIndex]?.scrollIntoView({ block: 'nearest' });
+}
+
+// 좌측 방향키 연속 2회 감지
+let lastLeftArrowTime = 0;
+
 // 키보드 네비게이션
 document.addEventListener('keydown', (e) => {
-  // 터미널 모드에서는 Esc만 처리 (xterm이 나머지 키 가로챔)
+  // 터미널 모드에서는 좌측 방향키 2회만 처리
   if (termMode) {
-    if (e.key === 'Escape') {
-      exitTerminalMode();
+    if (e.key === 'ArrowLeft') {
+      const now = Date.now();
+      if (now - lastLeftArrowTime < 400) {
+        exitTerminalMode();
+        lastLeftArrowTime = 0;
+      } else {
+        lastLeftArrowTime = now;
+      }
     }
     return;
   }
@@ -110,11 +130,8 @@ document.addEventListener('keydown', (e) => {
 
   switch (e.key) {
     case 'Escape':
-      if (pendingSessionName) {
-        resetState();
-      } else {
-        window.cc.hide();
-      }
+      if (pendingSessionName) resetState();
+      else window.cc.hide();
       break;
 
     case 'Backspace':
@@ -128,22 +145,25 @@ document.addEventListener('keydown', (e) => {
 
     case 'ArrowDown':
       e.preventDefault();
-      selectedIndex = Math.min(selectedIndex + 1, filtered.length - 1);
-      renderSessions();
-      scrollToSelected();
+      updateSelection(selectedIndex + 1);
       break;
 
     case 'ArrowUp':
       e.preventDefault();
-      selectedIndex = Math.max(selectedIndex - 1, 0);
-      renderSessions();
-      scrollToSelected();
+      updateSelection(selectedIndex - 1);
+      break;
+
+    case 'ArrowRight':
+      // 입력창이 비어있을 때만 → Enter와 동일
+      if (!searchQuery) {
+        e.preventDefault();
+        handleEnter(filtered);
+      }
       break;
 
     case 'Enter':
       e.preventDefault();
       if (e.metaKey) {
-        // ⌘+Enter: 선택된 세션에 메시지 전송
         if (selectedIndex >= 0 && filtered[selectedIndex] && searchQuery.trim()) {
           window.cc.sendToSession(filtered[selectedIndex], searchQuery.trim());
         }
@@ -244,15 +264,12 @@ function renderSessions() {
 
   listEl.querySelectorAll('.session-item').forEach((el) => {
     el.addEventListener('mouseenter', () => {
-      selectedIndex = parseInt(el.dataset.index);
-      renderSessions();
+      const idx = parseInt(el.dataset.index);
+      if (idx !== selectedIndex) updateSelection(idx);
     });
-
     el.addEventListener('click', () => {
-      selectedIndex = parseInt(el.dataset.index);
-      renderSessions();
+      updateSelection(parseInt(el.dataset.index));
     });
-
     el.addEventListener('dblclick', () => {
       selectedIndex = parseInt(el.dataset.index);
       activateSelected(getFiltered());
