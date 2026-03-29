@@ -203,15 +203,18 @@ document.addEventListener('keydown', (e) => {
       }
       break;
 
-    case 'ArrowDown':
+    case 'ArrowDown': {
       e.preventDefault();
-      updateSelection(selectedIndex + 1);
+      const countD = getFiltered().length;
+      updateSelection(countD ? (selectedIndex + 1) % countD : 0);
       break;
-
-    case 'ArrowUp':
+    }
+    case 'ArrowUp': {
       e.preventDefault();
-      updateSelection(selectedIndex - 1);
+      const countU = getFiltered().length;
+      updateSelection(countU ? (selectedIndex - 1 + countU) % countU : 0);
       break;
+    }
 
     case 'ArrowRight':
       if (!searchQuery) {
@@ -350,10 +353,6 @@ function renderSessions() {
   }).join('');
 
   listEl.querySelectorAll('.session-item').forEach((el) => {
-    el.addEventListener('mouseenter', () => {
-      const idx = parseInt(el.dataset.index);
-      if (idx !== selectedIndex) updateSelection(idx);
-    });
     el.addEventListener('click', (e) => {
       if (e.target.classList.contains('kill-btn')) return;
       updateSelection(parseInt(el.dataset.index));
@@ -463,6 +462,27 @@ function openTermTab(session) {
   term.loadAddon(fitAddon);
   term.open(wrapper);
   term.onData(data => window.cc.ptyInput(key, data));
+
+  // 파일 드래그앤드랍 → 경로를 pty에 텍스트로 입력
+  const termContainer = document.getElementById('term-container');
+  wrapper.addEventListener('dragover', e => {
+    e.preventDefault(); e.stopPropagation();
+    termContainer.classList.add('drag-over');
+  });
+  wrapper.addEventListener('dragleave', e => {
+    termContainer.classList.remove('drag-over');
+  });
+  wrapper.addEventListener('drop', e => {
+    e.preventDefault(); e.stopPropagation();
+    termContainer.classList.remove('drag-over');
+    const files = Array.from(e.dataTransfer.files);
+    if (!files.length) return;
+    const paths = files.map(f => {
+      const p = f.path;
+      return p.includes(' ') ? `"${p}"` : p;
+    });
+    window.cc.ptyInput(key, paths.join(' '));
+  });
   // Cmd+Shift+← → 런처로 복귀 (pty에는 전송 안 함)
   // Cmd+C → 선택 텍스트 있으면 클립보드 복사, 없으면 Ctrl+C 시그널
   term.onKey(({ key: k, domEvent: ev }) => {
