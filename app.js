@@ -468,7 +468,7 @@ function openTermTab(session) {
   term.onKey(({ key: k, domEvent: ev }) => {
     if (ev.metaKey && ev.key === ',') {
       ev.preventDefault();
-      settingsOpen ? closeSettings() : openSettings();
+      // document.keydown 버블링에서 toggleSettings 처리하므로 여기선 preventDefault만
       return;
     }
     if (ev.metaKey && ev.shiftKey && ev.key === 'ArrowLeft') {
