@@ -109,7 +109,7 @@ function createWindow() {
     y: Math.floor(height * 0.2),
     frame: false,
     transparent: true,
-    alwaysOnTop: true,
+    alwaysOnTop: false,
     skipTaskbar: true,
     resizable: false,
     show: false,
@@ -268,17 +268,27 @@ ipcMain.on('open-pty', (event, session) => {
   }
   const cols = 120, rows = 30;
   const shell = '/bin/zsh';
-  const args = session.tmuxSession ? ['-c', `tmux attach -t "${session.tmuxSession}"`] : [];
+  // tmux mouse off → xterm에서 텍스트 드래그 선택 가능하게
+  const args = session.tmuxSession
+    ? ['-c', `tmux set -g mouse off 2>/dev/null; tmux attach -t "${session.tmuxSession}"`]
+    : [];
 
   try {
     const p = pty.spawn(shell, args, {
       name: 'xterm-256color', cols, rows,
       cwd: session.path || process.env.HOME,
-      env: process.env,
+      env: { ...process.env, LANG: 'ko_KR.UTF-8', LC_ALL: 'ko_KR.UTF-8', TERM: 'xterm-256color' },
     });
     ptySessions.set(key, p);
     p.onData(data => {
-      if (win) win.webContents.send('pty-data', { key, data });
+      // 마우스 리포팅 활성화 시퀀스 필터링 → tmux.conf mouse on이 있어도 xterm에서 텍스트 선택 가능
+      const filtered = data
+        .replace(/\x1b\[\?1000h/g, '').replace(/\x1b\[\?1000l/g, '')
+        .replace(/\x1b\[\?1002h/g, '').replace(/\x1b\[\?1002l/g, '')
+        .replace(/\x1b\[\?1003h/g, '').replace(/\x1b\[\?1003l/g, '')
+        .replace(/\x1b\[\?1006h/g, '').replace(/\x1b\[\?1006l/g, '')
+        .replace(/\x1b\[\?1015h/g, '').replace(/\x1b\[\?1015l/g, '');
+      if (win) win.webContents.send('pty-data', { key, data: filtered });
     });
     p.onExit(() => {
       ptySessions.delete(key);
@@ -309,6 +319,35 @@ ipcMain.on('close-all-pty', () => {
   ptySessions.clear();
 });
 
+// ── 외부 터미널로 세션 열기 ─────────────────────────────────
+ipcMain.on('open-in-terminal', (_, session) => {
+  const tmux = session.tmuxSession;
+  if (!tmux) return;
+  const cmd = `tmux attach -t \\"${tmux}\\"`;
+  try {
+    // iTerm 존재 확인
+    const itermId = execSync(`osascript -e 'id of application "iTerm"' 2>/dev/null`).toString().trim();
+    if (itermId) {
+      execSync(`osascript -e 'tell application "iTerm"
+        activate
+        set newWin to (create window with default profile)
+        tell current session of newWin
+          write text "${cmd}"
+        end tell
+      end tell'`);
+      return;
+    }
+  } catch {}
+  try {
+    execSync(`osascript -e 'tell application "Terminal"
+      activate
+      do script "${cmd}"
+    end tell'`);
+  } catch (e) {
+    console.error('open-in-terminal error:', e.message);
+  }
+});
+
 // ── 세션 종료 ──────────────────────────────────────────────
 ipcMain.handle('confirm-kill', async (_, name) => {
   const { response } = await dialog.showMessageBox(win, {
@@ -335,6 +374,10 @@ ipcMain.on('kill-session', (_, { pid, tmuxSession }) => {
 });
 
 // ── 윈도우 크기 모드 전환 ──────────────────────────────────
+
+ipcMain.on('set-opacity', (_, alpha) => {
+  if (win) win.setOpacity(Math.max(0.1, Math.min(1.0, alpha)));
+});
 
 ipcMain.on('set-launcher-mode', () => {
   if (!win) return;

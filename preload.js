@@ -30,4 +30,13 @@ contextBridge.exposeInMainWorld('cc', {
   // 세션 종료
   killSession: (session) => ipcRenderer.send('kill-session', session),
   confirmKill: (name) => ipcRenderer.invoke('confirm-kill', name),
+
+  // 투명도
+  setOpacity: (alpha) => ipcRenderer.send('set-opacity', alpha),
+
+  // 클립보드
+  writeClipboard: (text) => navigator.clipboard.writeText(text),
+
+  // 외부 터미널로 열기
+  openInTerminal: (session) => ipcRenderer.send('open-in-terminal', session),
 });

@@ -113,13 +113,31 @@ function updateSelection(newIndex) {
   items[selectedIndex]?.scrollIntoView({ block: 'nearest' });
 }
 
-// 좌측 방향키 연속 2회 감지
+// 좌측/우측 방향키 연속 2회 감지
 let lastLeftArrowTime = 0;
+let lastRightArrowTime = 0;
 
 // 키보드 네비게이션
 document.addEventListener('keydown', (e) => {
-  // 터미널 모드에서는 좌측 방향키 2회만 처리
+  // 터미널 모드 단축키
   if (termMode) {
+    // Cmd+Opt+← : 이전 탭 (처음에서 → 마지막으로)
+    if (e.metaKey && e.altKey && e.key === 'ArrowLeft') {
+      e.preventDefault();
+      const keys = [...terms.keys()];
+      const idx = keys.indexOf(activeTermKey);
+      activateTab(keys[(idx - 1 + keys.length) % keys.length]);
+      return;
+    }
+    // Cmd+Opt+→ : 다음 탭 (마지막에서 → 처음으로)
+    if (e.metaKey && e.altKey && e.key === 'ArrowRight') {
+      e.preventDefault();
+      const keys = [...terms.keys()];
+      const idx = keys.indexOf(activeTermKey);
+      activateTab(keys[(idx + 1) % keys.length]);
+      return;
+    }
+    // 좌측 방향키 2회 → 런처로 복귀
     if (e.key === 'ArrowLeft') {
       const now = Date.now();
       if (now - lastLeftArrowTime < 400) {
@@ -160,10 +178,20 @@ document.addEventListener('keydown', (e) => {
       break;
 
     case 'ArrowRight':
-      // 입력창이 비어있을 때만 → Enter와 동일
       if (!searchQuery) {
+        // 빈 입력창: 2회 연속(400ms)으로 터미널 진입
         e.preventDefault();
-        handleEnter(filtered);
+        const nowR = Date.now();
+        if (nowR - lastRightArrowTime < 400) {
+          handleEnter(filtered);
+          lastRightArrowTime = 0;
+        } else {
+          lastRightArrowTime = nowR;
+        }
+      } else if (searchQuery.startsWith('@') && filtered[selectedIndex]) {
+        // @필터 상태에서 세션 선택 후 → 바로 터미널 진입
+        e.preventDefault();
+        enterTerminalMode(filtered[selectedIndex]);
       }
       break;
 
@@ -226,13 +254,14 @@ function getFiltered() {
 function renderSessions() {
   const filtered = getFiltered();
 
-  // @이름 입력 중
+  // @이름 입력 중 — 필터된 세션 목록 표시
   if (searchQuery.startsWith('@') && !pendingSessionName) {
     const name = searchQuery.slice(1).trim();
-    listEl.innerHTML = name
-      ? `<div class="empty-state new-session-hint">↵ 눌러서 <strong>"${escapeHtml(name)}"</strong> 이름으로 세션 준비</div>`
-      : `<div class="empty-state">@ 뒤에 세션 이름을 입력하세요</div>`;
-    return;
+    if (!name) {
+      listEl.innerHTML = `<div class="empty-state">@ 뒤에 세션 이름을 입력하세요</div>`;
+      return;
+    }
+    // name 있으면 아래 filtered 렌더링으로 fall through
   }
 
   // 세션 이름 확정 후 메시지 대기 중
@@ -245,9 +274,14 @@ function renderSessions() {
   }
 
   if (filtered.length === 0) {
-    listEl.innerHTML = searchQuery.trim()
-      ? `<div class="empty-state">일치하는 세션 없음 — <strong>@이름</strong> 으로 새 세션 시작</div>`
-      : `<div class="empty-state">실행 중인 Claude 세션 없음</div>`;
+    if (searchQuery.startsWith('@') && searchQuery.slice(1).trim()) {
+      const name = searchQuery.slice(1).trim();
+      listEl.innerHTML = `<div class="empty-state new-session-hint">일치하는 세션 없음 — ↵ 눌러서 <strong>"${escapeHtml(name)}"</strong> 새 세션 시작</div>`;
+    } else {
+      listEl.innerHTML = searchQuery.trim()
+        ? `<div class="empty-state">일치하는 세션 없음 — <strong>@이름</strong> 으로 새 세션 시작</div>`
+        : `<div class="empty-state">실행 중인 Claude 세션 없음</div>`;
+    }
     return;
   }
 
@@ -273,6 +307,7 @@ function renderSessions() {
         </div>
         <span class="type-icon">${s.type === 'tmux' ? 'tmux' : 'tty'}</span>
         <span class="status-badge ${s.status}">${statusLabel}</span>
+        ${s.tmuxSession ? `<button class="ext-btn" data-tmux="${s.tmuxSession}" title="외부 터미널로 열기">⎋</button>` : ''}
         <button class="kill-btn" data-pid="${s.pid}" data-name="${escapeHtml(s.name)}" data-tmux="${s.tmuxSession || ''}" title="세션 종료">✕</button>
       </div>
     `;
@@ -291,6 +326,16 @@ function renderSessions() {
       if (e.target.classList.contains('kill-btn')) return;
       selectedIndex = parseInt(el.dataset.index);
       activateSelected(getFiltered());
+    });
+  });
+
+  // 외부 터미널 버튼
+  listEl.querySelectorAll('.ext-btn').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const tmux = btn.dataset.tmux;
+      const session = sessions.find(s => s.tmuxSession === tmux);
+      if (session) window.cc.openInTerminal(session);
     });
   });
 
@@ -332,6 +377,7 @@ function enterTerminalMode(session) {
   document.getElementById('launcher-view').classList.add('hidden');
   document.getElementById('terminal-view').classList.remove('hidden');
   window.cc.setTerminalMode();
+  enterTerminalOpacity();
   openTermTab(session);
 }
 
@@ -340,6 +386,7 @@ function exitTerminalMode() {
   document.getElementById('terminal-view').classList.add('hidden');
   document.getElementById('launcher-view').classList.remove('hidden');
   window.cc.setLauncherMode();
+  enterLauncherOpacity();
   // pty는 종료하지 않고 유지 (다시 터미널 모드 진입 시 재사용)
   setTimeout(() => searchEl.focus(), 100);
 }
@@ -363,26 +410,38 @@ function openTermTab(session) {
 
   const term = new Terminal({
     theme: {
-      background: '#0d0d0f',
+      background: 'transparent',
       foreground: '#e4e4e7',
       cursor: '#a78bfa',
       selectionBackground: 'rgba(139,92,246,0.3)',
     },
     fontSize: 13,
-    fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+    fontFamily: '"Menlo", "Monaco", "Apple SD Gothic Neo", "Malgun Gothic", "Courier New", monospace',
     cursorBlink: true,
     scrollback: 5000,
     allowTransparency: true,
+    copyOnSelect: true,
+    rightClickSelectsWord: true,
   });
   const fitAddon = new FitAddon.FitAddon();
   term.loadAddon(fitAddon);
   term.open(wrapper);
   term.onData(data => window.cc.ptyInput(key, data));
   // Cmd+Shift+← → 런처로 복귀 (pty에는 전송 안 함)
+  // Cmd+C → 선택 텍스트 있으면 클립보드 복사, 없으면 Ctrl+C 시그널
   term.onKey(({ key: k, domEvent: ev }) => {
     if (ev.metaKey && ev.shiftKey && ev.key === 'ArrowLeft') {
       ev.preventDefault();
       exitTerminalMode();
+      return;
+    }
+    if (ev.metaKey && ev.key === 'c') {
+      const sel = term.getSelection();
+      if (sel) {
+        ev.preventDefault();
+        window.cc.writeClipboard(sel);
+        return;
+      }
     }
   });
 
@@ -468,6 +527,36 @@ window.addEventListener('resize', () => {
       window.cc.ptyResize(activeTermKey, t.term.cols, t.term.rows);
     }
   }
+});
+
+// ── opacity 슬라이더 (런처/터미널 모드별 독립 저장) ──────────────
+let launcherOpacityVal = 82;
+let terminalOpacityVal = 92; // 터미널은 기본 더 밝게
+
+function applyOpacity(val) {
+  const alpha = val / 100;
+  document.documentElement.style.setProperty('--bg', `rgba(24, 24, 27, ${alpha})`);
+  window.cc.setOpacity(0.4 + alpha * 0.6);
+}
+
+function enterTerminalOpacity() {
+  document.getElementById('opacity-slider').value = terminalOpacityVal;
+  applyOpacity(terminalOpacityVal);
+}
+
+function enterLauncherOpacity() {
+  document.getElementById('opacity-slider-launcher').value = launcherOpacityVal;
+  applyOpacity(launcherOpacityVal);
+}
+
+document.getElementById('opacity-slider').addEventListener('input', (e) => {
+  terminalOpacityVal = parseInt(e.target.value);
+  applyOpacity(terminalOpacityVal);
+});
+
+document.getElementById('opacity-slider-launcher').addEventListener('input', (e) => {
+  launcherOpacityVal = parseInt(e.target.value);
+  applyOpacity(launcherOpacityVal);
 });
 
 // ── 유틸 ──────────────────────────────────────────────────
