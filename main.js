@@ -2,7 +2,8 @@ const { app, BrowserWindow, globalShortcut, ipcMain, screen, dialog, Tray, Menu,
 const path = require('path');
 const { execSync } = require('child_process');
 const { getSessions } = require('./lib/sessions');
-const { launchNewSession, focusTerminalTty, focusTmuxSession, sendToSession } = require('./lib/launcher');
+const { launchNewSession, launchNewSessionInApp, focusTerminalTty, focusTmuxSession, sendToSession } = require('./lib/launcher');
+const { getSettings, setSetting } = require('./lib/settings');
 
 let win = null;
 let pollInterval = null;
@@ -214,7 +215,7 @@ ipcMain.on('blur-hide-if-launcher', () => {
   hideWindow();
 });
 
-ipcMain.on('launch-session', async (event, { sessionName, message }) => {
+ipcMain.on('launch-session', async (event, { sessionName, message, launchMode }) => {
   // 동일 이름 세션 존재 여부 확인
   try {
     execSync(`tmux has-session -t "${sessionName}" 2>/dev/null`);
@@ -229,13 +230,24 @@ ipcMain.on('launch-session', async (event, { sessionName, message }) => {
       cancelId: 1,
     });
     if (response === 1) return; // 취소
-    // 기존 세션 kill
     try { execSync(`tmux kill-session -t "${sessionName}" 2>/dev/null`); } catch {}
   } catch {
     // 세션 없음 → 그냥 진행
   }
-  hideWindow();
-  launchNewSession(sessionName, message);
+
+  const mode = launchMode || getSettings().launchMode;
+
+  if (mode === 'inapp') {
+    try {
+      const sessionDescriptor = launchNewSessionInApp(sessionName, message);
+      win.webContents.send('launch-session-inapp', sessionDescriptor);
+    } catch (e) {
+      dialog.showErrorBox('세션 생성 실패', e.message);
+    }
+  } else {
+    hideWindow();
+    launchNewSession(sessionName, message);
+  }
 });
 
 ipcMain.on('focus-session', (event, session) => {
@@ -272,6 +284,21 @@ ipcMain.on('open-pty', (event, session) => {
   const args = session.tmuxSession
     ? ['-c', `tmux set -g mouse off 2>/dev/null; tmux attach -t "${session.tmuxSession}"`]
     : [];
+
+  // tmux 히스토리 사전 전송 (scrollback 용)
+  if (session.tmuxSession) {
+    try {
+      const history = execSync(
+        `tmux capture-pane -p -t "${session.tmuxSession}" -S -500 2>/dev/null`,
+        { encoding: 'utf8', timeout: 2000 }
+      );
+      if (history.trim()) {
+        // 히스토리를 pty-ready 전에 미리 보내두기 위해 key를 임시 등록
+        // renderer에서 onPtyReady 후 처리하도록 history 이벤트 전송
+        win.webContents.send('pty-history', { key, data: history });
+      }
+    } catch (e) { /* 히스토리 없으면 무시 */ }
+  }
 
   try {
     const p = pty.spawn(shell, args, {
@@ -372,6 +399,10 @@ ipcMain.on('kill-session', (_, { pid, tmuxSession }) => {
     console.error('kill-session error:', e.message);
   }
 });
+
+// ── 설정 ──────────────────────────────────────────────────
+ipcMain.handle('get-settings', () => getSettings());
+ipcMain.handle('set-setting', (_, key, value) => setSetting(key, value));
 
 // ── 윈도우 크기 모드 전환 ──────────────────────────────────
 

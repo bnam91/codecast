@@ -8,11 +8,28 @@ let termMode = false;
 const terms = new Map(); // key → { term, fitAddon, session, wrapper }
 let activeTermKey = null;
 
+// 설정
+let settingsOpen = false;
+let appSettings = { launchMode: 'inapp' };
+
 const searchEl = document.getElementById('search');
 const listEl = document.getElementById('sessions-list');
 const enterHint = document.getElementById('enter-hint');
 const sessionChip = document.getElementById('session-chip');
 const sessionChipName = document.getElementById('session-chip-name');
+const settingsModal = document.getElementById('settings-modal');
+const launchModeToggle = document.getElementById('launch-mode-toggle');
+
+// 설정 로드
+window.cc.getSettings().then(s => {
+  appSettings = s;
+  applySettingsToggle();
+});
+
+// 앱 내 세션 시작 응답 → 터미널 모드 진입
+window.cc.onLaunchSessionInApp((session) => {
+  enterTerminalMode(session);
+});
 
 // blur 처리: 런처 모드일 때만 숨김
 window.cc.onCheckTermModeForBlur(() => {
@@ -35,6 +52,10 @@ window.cc.onWindowShown(() => {
 });
 
 // PTY 이벤트 수신
+window.cc.onPtyHistory(({ key, data }) => {
+  terms.get(key)?.term.write(data);
+});
+
 window.cc.onPtyData(({ key, data }) => {
   terms.get(key)?.term.write(data);
 });
@@ -61,6 +82,7 @@ window.cc.onPtyError((msg) => {
 });
 
 function resetState() {
+  closeSettings();
   searchEl.value = '';
   searchQuery = '';
   selectedIndex = 0;
@@ -119,6 +141,20 @@ let lastRightArrowTime = 0;
 
 // 키보드 네비게이션
 document.addEventListener('keydown', (e) => {
+  // Cmd+, → 설정 (모든 모드에서)
+  if (e.metaKey && e.key === ',') {
+    e.preventDefault();
+    settingsOpen ? closeSettings() : openSettings();
+    return;
+  }
+
+  // Esc → 설정 닫기 (최우선)
+  if (e.key === 'Escape' && settingsOpen) {
+    e.preventDefault();
+    closeSettings();
+    return;
+  }
+
   // 터미널 모드 단축키
   if (termMode) {
     // Cmd+Opt+← : 이전 탭 (처음에서 → 마지막으로)
@@ -225,7 +261,7 @@ function handleEnter(filtered) {
 
   // 단계 2: 세션 이름 확정 상태 + 메시지 입력 → 새 세션 시작
   if (pendingSessionName) {
-    window.cc.launch(pendingSessionName, searchQuery.trim());
+    window.cc.launch(pendingSessionName, searchQuery.trim(), appSettings.launchMode);
     return;
   }
 
@@ -358,7 +394,7 @@ function activateSelected(filtered) {
   if (searchQuery.trim() && (!filtered.length || selectedIndex < 0)) {
     // 텍스트만 있고 선택 없으면 → 자동 이름으로 새 세션
     const autoName = `cc-${Date.now()}`;
-    window.cc.launch(autoName, searchQuery.trim());
+    window.cc.launch(autoName, searchQuery.trim(), appSettings.launchMode);
   } else if (selectedIndex >= 0 && filtered[selectedIndex]) {
     if (searchQuery.trim()) {
       window.cc.sendToSession(filtered[selectedIndex], searchQuery.trim());
@@ -430,6 +466,11 @@ function openTermTab(session) {
   // Cmd+Shift+← → 런처로 복귀 (pty에는 전송 안 함)
   // Cmd+C → 선택 텍스트 있으면 클립보드 복사, 없으면 Ctrl+C 시그널
   term.onKey(({ key: k, domEvent: ev }) => {
+    if (ev.metaKey && ev.key === ',') {
+      ev.preventDefault();
+      settingsOpen ? closeSettings() : openSettings();
+      return;
+    }
     if (ev.metaKey && ev.shiftKey && ev.key === 'ArrowLeft') {
       ev.preventDefault();
       exitTerminalMode();
@@ -557,6 +598,43 @@ document.getElementById('opacity-slider').addEventListener('input', (e) => {
 document.getElementById('opacity-slider-launcher').addEventListener('input', (e) => {
   launcherOpacityVal = parseInt(e.target.value);
   applyOpacity(launcherOpacityVal);
+});
+
+// ── 설정 모달 ──────────────────────────────────────────────
+
+function applySettingsToggle() {
+  launchModeToggle.querySelectorAll('.settings-toggle').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.value === appSettings.launchMode);
+  });
+}
+
+function openSettings() {
+  if (settingsOpen) return;
+  settingsOpen = true;
+  settingsModal.classList.remove('hidden');
+  applySettingsToggle();
+}
+
+function closeSettings() {
+  if (!settingsOpen) return;
+  settingsOpen = false;
+  settingsModal.classList.add('hidden');
+  if (!termMode) setTimeout(() => searchEl.focus(), 50);
+}
+
+document.getElementById('settings-close').addEventListener('click', closeSettings);
+
+settingsModal.addEventListener('click', (e) => {
+  if (e.target === settingsModal) closeSettings();
+});
+
+launchModeToggle.addEventListener('click', async (e) => {
+  const btn = e.target.closest('.settings-toggle');
+  if (!btn) return;
+  const value = btn.dataset.value;
+  if (value === appSettings.launchMode) return;
+  appSettings = await window.cc.setSetting('launchMode', value);
+  applySettingsToggle();
 });
 
 // ── 유틸 ──────────────────────────────────────────────────

@@ -48,7 +48,50 @@
         <span><span class="kbd">↵</span> 터미널</span>
         <span><span class="kbd">⌘↵</span> 메시지 전송</span>
         <span><span class="kbd">Esc</span> 닫기</span>
+        <span><span class="kbd">⌘,</span> 설정</span>
         <span style="margin-left:auto"><input type="range" id="opacity-slider-launcher" min="40" max="100" value="82" title="투명도 조절"></span>
+      </div>
+    </div>
+
+    <!-- 설정 모달 -->
+    <div id="settings-modal" class="hidden">
+      <div id="settings-content">
+        <div id="settings-header">
+          <span id="settings-title">설정</span>
+          <button id="settings-close" title="닫기">✕</button>
+        </div>
+        <div id="settings-body">
+          <div class="settings-section">
+            <div class="settings-section-label">새 세션 시작 방식</div>
+            <div class="settings-row">
+              <div class="settings-row-info">
+                <span class="settings-row-title">실행 모드</span>
+                <span class="settings-row-desc">새 Claude 세션을 어디서 열지 선택합니다</span>
+              </div>
+              <div class="settings-toggle-group" id="launch-mode-toggle">
+                <button class="settings-toggle" data-value="inapp">앱 내 터미널</button>
+                <button class="settings-toggle" data-value="external">외부 터미널</button>
+              </div>
+            </div>
+          </div>
+          <div class="settings-section">
+            <div class="settings-section-label">단축키</div>
+            <div class="shortcuts-table">
+              <div class="shortcut-row"><span class="shortcut-desc">패널 열기/닫기</span><span class="shortcut-keys"><span class="kbd">⌃⇧Space</span></span></div>
+              <div class="shortcut-row"><span class="shortcut-desc">터미널 진입</span><span class="shortcut-keys"><span class="kbd">↵</span></span></div>
+              <div class="shortcut-row"><span class="shortcut-desc">메시지 전송 (선택 세션)</span><span class="shortcut-keys"><span class="kbd">⌘↵</span></span></div>
+              <div class="shortcut-row"><span class="shortcut-desc">새 세션 이름 지정</span><span class="shortcut-keys"><span class="kbd">@이름</span> <span class="kbd">↵</span></span></div>
+              <div class="shortcut-row"><span class="shortcut-desc">빠른 터미널 진입</span><span class="shortcut-keys"><span class="kbd">→→</span></span></div>
+              <div class="shortcut-row"><span class="shortcut-desc">터미널 → 런처 복귀</span><span class="shortcut-keys"><span class="kbd">⌘⇧←</span></span></div>
+              <div class="shortcut-row"><span class="shortcut-desc">터미널 탭 전환</span><span class="shortcut-keys"><span class="kbd">⌘⌥← / →</span></span></div>
+              <div class="shortcut-row"><span class="shortcut-desc">설정 열기/닫기</span><span class="shortcut-keys"><span class="kbd">⌘,</span></span></div>
+              <div class="shortcut-row"><span class="shortcut-desc">닫기 / 초기화</span><span class="shortcut-keys"><span class="kbd">Esc</span></span></div>
+            </div>
+          </div>
+        </div>
+        <div id="settings-footer">
+          <span class="settings-hint"><span class="kbd">Esc</span> 닫기</span>
+        </div>
       </div>
     </div>
 
