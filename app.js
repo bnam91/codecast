@@ -577,7 +577,8 @@ let terminalOpacityVal = 92; // 터미널은 기본 더 밝게
 function applyOpacity(val) {
   const alpha = val / 100;
   document.documentElement.style.setProperty('--bg', `rgba(24, 24, 27, ${alpha})`);
-  window.cc.setOpacity(0.4 + alpha * 0.6);
+  // win.setOpacity()는 backdrop-filter blur를 깨뜨리므로 사용 안 함
+  // CSS --bg 변수로만 투명도 조절
 }
 
 function enterTerminalOpacity() {
