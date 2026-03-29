@@ -110,6 +110,7 @@ function createWindow() {
     y: Math.floor(height * 0.2),
     frame: false,
     transparent: true,
+    vibrancy: 'under-window',   // macOS 네이티브 블러 (창 뒤 배경 블러)
     alwaysOnTop: false,
     skipTaskbar: true,
     resizable: false,
