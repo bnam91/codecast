@@ -133,8 +133,10 @@ function createWindow() {
 
 function showWindow() {
   if (!win) return;
-  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
-  win.setPosition(Math.floor((width - 680) / 2), Math.floor(height * 0.2));
+  const cursorPos = screen.getCursorScreenPoint();
+  const display = screen.getDisplayNearestPoint(cursorPos);
+  const { x: dx, y: dy, width, height } = display.workArea;
+  win.setPosition(dx + Math.floor((width - 680) / 2), dy + Math.floor(height * 0.2));
   win.setSize(680, 480, false);
   // 현재 스페이스에 나타나도록 (다른 데스크탑으로 이동하지 않음)
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
@@ -417,17 +419,19 @@ ipcMain.on('set-opacity', (_, alpha) => {
 
 ipcMain.on('set-launcher-mode', () => {
   if (!win) return;
-  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+  const display = screen.getDisplayMatching(win.getBounds());
+  const { x: dx, y: dy, width, height } = display.workArea;
   win.setResizable(true);
   win.setSize(680, 480, true);
-  win.setPosition(Math.floor((width - 680) / 2), Math.floor(height * 0.2), true);
+  win.setPosition(dx + Math.floor((width - 680) / 2), dy + Math.floor(height * 0.2), true);
   win.setResizable(false);
 });
 
 ipcMain.on('set-terminal-mode', () => {
   if (!win) return;
-  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+  const display = screen.getDisplayMatching(win.getBounds());
+  const { x: dx, y: dy, width, height } = display.workArea;
   win.setResizable(true);
   win.setSize(1000, 680, true);
-  win.setPosition(Math.floor((width - 1000) / 2), Math.floor(height * 0.15), true);
+  win.setPosition(dx + Math.floor((width - 1000) / 2), dy + Math.floor(height * 0.15), true);
 });
