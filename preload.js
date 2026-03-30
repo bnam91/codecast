@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld('cc', {
   onSessionsUpdate: (cb) => ipcRenderer.on('sessions-update', (_, data) => cb(data)),
   onWindowShown: (cb) => ipcRenderer.on('window-shown', () => cb()),
   hide: () => ipcRenderer.send('hide-window'),
+  show: () => ipcRenderer.send('show-window'),
   launch: (sessionName, message, launchMode) => ipcRenderer.send('launch-session', { sessionName, message, launchMode }),
   onLaunchSessionInApp: (cb) => ipcRenderer.on('launch-session-inapp', (_, session) => cb(session)),
   focusSession: (session) => ipcRenderer.send('focus-session', session),

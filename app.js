@@ -1,3 +1,25 @@
+// ── ! 커맨드 목록 ─────────────────────────────────────────────
+const COMMANDS = [
+  {
+    id: 'starter',
+    icon: '🚀',
+    title: '초보자 설치 가이드',
+    desc: '필수 도구 확인 및 Claude Code 설치',
+  },
+  {
+    id: 'skills',
+    icon: '⚡',
+    title: '추천 스킬 설치',
+    desc: '자주 쓰는 Claude Code 스킬 패키지 설치',
+  },
+  {
+    id: 'doctor',
+    icon: '🩺',
+    title: '환경 진단',
+    desc: 'Node, Git, tmux 등 실행 환경 점검',
+  },
+];
+
 let sessions = [];
 let selectedIndex = 0;
 let searchQuery = '';
@@ -7,6 +29,9 @@ let pendingSessionName = null; // @이름 입력 후 대기 상태
 let termMode = false;
 const terms = new Map(); // key → { term, fitAddon, session, wrapper }
 let activeTermKey = null;
+let splitKey = null;      // 스플릿 우측 패널에 표시 중인 탭 key
+let dragTabKey = null;    // 드래그 중인 탭 key
+let splitRatio = 0.5;     // 좌패널 비율 (0.2 ~ 0.8)
 
 // 설정
 let settingsOpen = false;
@@ -107,10 +132,13 @@ function updateHint() {
     enterHint.innerHTML = `<span class="kbd">↵</span> 세션 시작`;
     return;
   }
-  const isAt = searchQuery.startsWith('@') && searchQuery.trim().length > 1;
-  if (isAt) {
+  if (searchQuery.startsWith('@') && searchQuery.slice(1).trim()) {
     enterHint.classList.remove('hidden');
-    enterHint.innerHTML = `<span class="kbd">↵</span> 이름 확정`;
+    const raw = searchQuery.slice(1).trim();
+    const hasMessage = raw.indexOf(' ') > 0;
+    enterHint.innerHTML = hasMessage
+      ? `<span class="kbd">↵</span> 세션 시작`
+      : `<span class="kbd">↵</span> 이름 확정`;
   } else if (searchQuery.trim()) {
     enterHint.classList.remove('hidden');
     const filtered = getFiltered();
@@ -127,7 +155,8 @@ function updateHint() {
 
 // 선택만 바꿀 때 — DOM 재생성 없이 클래스만 교체
 function updateSelection(newIndex) {
-  const items = listEl.querySelectorAll('.session-item');
+  const selector = isCommandMode() ? '.command-item' : '.session-item';
+  const items = listEl.querySelectorAll(selector);
   if (!items.length) return;
   items[selectedIndex]?.classList.remove('selected');
   selectedIndex = Math.max(0, Math.min(newIndex, items.length - 1));
@@ -191,6 +220,13 @@ document.addEventListener('keydown', (e) => {
   switch (e.key) {
     case 'Escape':
       if (pendingSessionName) resetState();
+      else if (searchQuery) {
+        searchEl.value = '';
+        searchQuery = '';
+        selectedIndex = 0;
+        updateHint();
+        renderSessions();
+      }
       else window.cc.hide();
       break;
 
@@ -205,28 +241,22 @@ document.addEventListener('keydown', (e) => {
 
     case 'ArrowDown': {
       e.preventDefault();
-      const countD = getFiltered().length;
+      const countD = isCommandMode() ? getFilteredCommands().length : getFiltered().length;
       updateSelection(countD ? (selectedIndex + 1) % countD : 0);
       break;
     }
     case 'ArrowUp': {
       e.preventDefault();
-      const countU = getFiltered().length;
+      const countU = isCommandMode() ? getFilteredCommands().length : getFiltered().length;
       updateSelection(countU ? (selectedIndex - 1 + countU) % countU : 0);
       break;
     }
 
     case 'ArrowRight':
-      if (!searchQuery) {
-        // 빈 입력창: 2회 연속(400ms)으로 터미널 진입
+      if (e.metaKey && !searchQuery) {
+        // Cmd+→ : 터미널 모드 진입
         e.preventDefault();
-        const nowR = Date.now();
-        if (nowR - lastRightArrowTime < 400) {
-          handleEnter(filtered);
-          lastRightArrowTime = 0;
-        } else {
-          lastRightArrowTime = nowR;
-        }
+        handleEnter(filtered);
       } else if (searchQuery.startsWith('@') && filtered[selectedIndex]) {
         // @필터 상태에서 세션 선택 후 → 바로 터미널 진입
         e.preventDefault();
@@ -247,13 +277,55 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+function runCommand(id) {
+  const cmd = COMMANDS.find(c => c.id === id);
+  if (!cmd) return;
+  showCommandPopup(cmd);
+}
+
+function showCommandPopup(cmd) {
+  const existing = document.getElementById('command-popup');
+  if (existing) existing.remove();
+  const popup = document.createElement('div');
+  popup.id = 'command-popup';
+  popup.innerHTML = `
+    <div class="command-popup-icon">${cmd.icon}</div>
+    <div class="command-popup-title">${escapeHtml(cmd.title)}</div>
+    <div class="command-popup-msg">기능 준비 중입니다</div>
+  `;
+  document.getElementById('panel').appendChild(popup);
+  requestAnimationFrame(() => popup.classList.add('visible'));
+  setTimeout(() => {
+    popup.classList.remove('visible');
+    setTimeout(() => popup.remove(), 300);
+  }, 2200);
+}
+
 function handleEnter(filtered) {
+  // ! 커맨드 모드
+  if (isCommandMode()) {
+    const cmds = getFilteredCommands();
+    const cmd = cmds[selectedIndex] || cmds[0];
+    if (cmd) runCommand(cmd.id);
+    return;
+  }
+
   // 단계 1: @이름 입력 → 세션 이름 확정
   if (!pendingSessionName && searchQuery.startsWith('@')) {
-    const name = searchQuery.slice(1).trim();
-    if (!name) return;
-    pendingSessionName = name;
-    sessionChipName.textContent = name;
+    const raw = searchQuery.slice(1).trim();
+    if (!raw) return;
+    // 공백 포함 시: 첫 단어=세션명, 나머지=첫 메시지로 바로 런치
+    const spaceIdx = raw.indexOf(' ');
+    if (spaceIdx > 0) {
+      const sessionName = raw.slice(0, spaceIdx).trim();
+      const message = raw.slice(spaceIdx + 1).trim();
+      if (!sessionName) return; // @ 뒤 공백만 있는 경우 방어
+      window.cc.launch(sessionName, message, appSettings.launchMode);
+      resetState();
+      return;
+    }
+    pendingSessionName = raw;
+    sessionChipName.textContent = raw;
     sessionChip.classList.remove('hidden');
     searchEl.value = '';
     searchQuery = '';
@@ -264,7 +336,10 @@ function handleEnter(filtered) {
 
   // 단계 2: 세션 이름 확정 상태 + 메시지 입력 → 새 세션 시작
   if (pendingSessionName) {
-    window.cc.launch(pendingSessionName, searchQuery.trim(), appSettings.launchMode);
+    const name = pendingSessionName;
+    const msg = searchQuery.trim();
+    resetState();
+    window.cc.launch(name, msg, appSettings.launchMode);
     return;
   }
 
@@ -272,8 +347,21 @@ function handleEnter(filtered) {
   activateSelected(filtered);
 }
 
+function isCommandMode() {
+  return searchQuery.startsWith('!');
+}
+
+function getFilteredCommands() {
+  const q = searchQuery.slice(1).toLowerCase().trim();
+  if (!q) return COMMANDS;
+  return COMMANDS.filter(c =>
+    c.id.includes(q) || c.title.toLowerCase().includes(q) || c.desc.toLowerCase().includes(q)
+  );
+}
+
 function getFiltered() {
   if (pendingSessionName) return [];
+  if (isCommandMode()) return [];
   if (searchQuery.startsWith('@')) {
     const q = searchQuery.slice(1).toLowerCase();
     if (!q) return sessions;
@@ -291,6 +379,32 @@ function getFiltered() {
 }
 
 function renderSessions() {
+  // ! 커맨드 모드
+  if (isCommandMode()) {
+    const cmds = getFilteredCommands();
+    if (!cmds.length) {
+      listEl.innerHTML = `<div class="empty-state">일치하는 커맨드 없음</div>`;
+      return;
+    }
+    listEl.innerHTML = cmds.map((c, i) => `
+      <div class="command-item ${i === selectedIndex ? 'selected' : ''}" data-index="${i}" data-id="${c.id}">
+        <span class="command-icon">${c.icon}</span>
+        <div class="command-info">
+          <div class="command-title">!${c.id} <span class="command-label">${escapeHtml(c.title)}</span></div>
+          <div class="command-desc">${escapeHtml(c.desc)}</div>
+        </div>
+        <span class="command-arrow">›</span>
+      </div>
+    `).join('');
+    listEl.querySelectorAll('.command-item').forEach(el => {
+      el.addEventListener('click', () => {
+        updateSelection(parseInt(el.dataset.index));
+        runCommand(el.dataset.id);
+      });
+    });
+    return;
+  }
+
   const filtered = getFiltered();
 
   // @이름 입력 중 — 필터된 세션 목록 표시
@@ -437,15 +551,14 @@ function openTermTab(session) {
   }
 
   // 새 xterm 인스턴스
-  const container = document.getElementById('term-container');
   const wrapper = document.createElement('div');
   wrapper.style.cssText = 'width:100%;height:100%;position:absolute;top:0;left:0;';
   wrapper.id = `term-wrap-${key}`;
-  container.appendChild(wrapper);
+  document.getElementById('term-panel-main').appendChild(wrapper);
 
   const term = new Terminal({
     theme: {
-      background: 'transparent',
+      background: 'rgba(14, 14, 22, 0.75)',
       foreground: '#e4e4e7',
       cursor: '#a78bfa',
       selectionBackground: 'rgba(139,92,246,0.3)',
@@ -464,17 +577,16 @@ function openTermTab(session) {
   term.onData(data => window.cc.ptyInput(key, data));
 
   // 파일 드래그앤드랍 → 경로를 pty에 텍스트로 입력
-  const termContainer = document.getElementById('term-container');
+  const parentPanel = () => wrapper.parentElement || document.getElementById('term-panel-main');
   wrapper.addEventListener('dragover', e => {
+    if (!e.dataTransfer.files?.length && !e.dataTransfer.types?.includes('Files')) return;
     e.preventDefault(); e.stopPropagation();
-    termContainer.classList.add('drag-over');
+    parentPanel().classList.add('drag-over');
   });
-  wrapper.addEventListener('dragleave', e => {
-    termContainer.classList.remove('drag-over');
-  });
+  wrapper.addEventListener('dragleave', () => parentPanel().classList.remove('drag-over'));
   wrapper.addEventListener('drop', e => {
     e.preventDefault(); e.stopPropagation();
-    termContainer.classList.remove('drag-over');
+    parentPanel().classList.remove('drag-over');
     const files = Array.from(e.dataTransfer.files);
     if (!files.length) return;
     const paths = files.map(f => {
@@ -514,65 +626,228 @@ function openTermTab(session) {
 
 function activateTab(key) {
   activeTermKey = key;
-  terms.forEach((t, k) => {
-    t.wrapper.style.display = k === key ? 'block' : 'none';
-  });
+  layoutPanels();
   renderTabs();
   setTimeout(() => {
     const t = terms.get(key);
-    if (t) {
-      t.fitAddon.fit();
-      window.cc.ptyResize(key, t.term.cols, t.term.rows);
-      t.term.focus();
+    if (t) { t.fitAddon.fit(); window.cc.ptyResize(key, t.term.cols, t.term.rows); t.term.focus(); }
+    if (splitKey && splitKey !== key) {
+      const s = terms.get(splitKey);
+      if (s) { s.fitAddon.fit(); window.cc.ptyResize(splitKey, s.term.cols, s.term.rows); }
     }
   }, 50);
 }
 
+function layoutPanels() {
+  const mainPanel = document.getElementById('term-panel-main');
+  const splitPanel = document.getElementById('term-panel-split');
+  const container = document.getElementById('term-container');
+
+  terms.forEach((t, k) => {
+    if (splitKey && k === splitKey) {
+      if (t.wrapper.parentElement !== splitPanel) splitPanel.appendChild(t.wrapper);
+      t.wrapper.style.display = 'block';
+    } else if (k === activeTermKey) {
+      if (t.wrapper.parentElement !== mainPanel) mainPanel.appendChild(t.wrapper);
+      t.wrapper.style.display = 'block';
+    } else {
+      if (t.wrapper.parentElement !== mainPanel) mainPanel.appendChild(t.wrapper);
+      t.wrapper.style.display = 'none';
+    }
+  });
+
+  if (splitKey && terms.has(splitKey)) {
+    container.classList.add('split-mode');
+    applySplitRatio();
+  } else {
+    container.classList.remove('split-mode');
+    splitKey = null;
+    mainPanel.style.flex = '';
+    splitPanel.style.flex = '';
+  }
+}
+
+function applySplitRatio() {
+  const mainPanel = document.getElementById('term-panel-main');
+  const splitPanel = document.getElementById('term-panel-split');
+  mainPanel.style.flex = `0 0 calc(${splitRatio * 100}% - 2px)`;
+  splitPanel.style.flex = `0 0 calc(${(1 - splitRatio) * 100}% - 2px)`;
+}
+
+function setSplit(key) {
+  if (!terms.has(key)) return;
+  if (splitKey === key) { closeSplit(); return; }
+  splitKey = key;
+  if (activeTermKey === key) {
+    const others = [...terms.keys()].filter(k => k !== key);
+    if (others.length) activeTermKey = others[0];
+  }
+  layoutPanels();
+  renderTabs();
+  setTimeout(() => {
+    const m = terms.get(activeTermKey);
+    if (m) { m.fitAddon.fit(); window.cc.ptyResize(activeTermKey, m.term.cols, m.term.rows); m.term.focus(); }
+    const s = terms.get(splitKey);
+    if (s) { s.fitAddon.fit(); window.cc.ptyResize(splitKey, s.term.cols, s.term.rows); }
+  }, 60);
+}
+
+function closeSplit() {
+  splitKey = null;
+  layoutPanels();
+  renderTabs();
+  setTimeout(() => {
+    const t = terms.get(activeTermKey);
+    if (t) { t.fitAddon.fit(); window.cc.ptyResize(activeTermKey, t.term.cols, t.term.rows); t.term.focus(); }
+  }, 60);
+}
+
 function renderTabs() {
   const tabsEl = document.getElementById('term-tabs');
-  tabsEl.innerHTML = [...terms.entries()].map(([key, { session }]) => `
-    <div class="term-tab ${key === activeTermKey ? 'active' : ''}" data-key="${key}">
+  tabsEl.innerHTML = [...terms.entries()].map(([key, { session }]) => {
+    const isActive = key === activeTermKey;
+    const isSplit = key === splitKey;
+    const cls = ['term-tab', isActive ? 'active' : '', isSplit ? 'split-active' : ''].filter(Boolean).join(' ');
+    return `<div class="${cls}" data-key="${key}" draggable="true">
       <div class="status-dot ${session.status || 'idle'}"></div>
       <span>${escapeHtml(session.name)}</span>
       <span class="tab-close" data-close="${key}">✕</span>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 
   tabsEl.querySelectorAll('.term-tab').forEach(el => {
+    const key = el.dataset.key;
+
+    // 클릭
     el.addEventListener('click', (e) => {
       const closeKey = e.target.dataset.close;
-      if (closeKey) {
-        e.stopPropagation();
-        closeTab(closeKey);
-      } else {
-        activateTab(el.dataset.key);
-      }
+      if (closeKey) { e.stopPropagation(); closeTab(closeKey); }
+      else { activateTab(key); }
+    });
+
+    // 우클릭 → 컨텍스트 메뉴
+    el.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      showTabContextMenu(e.clientX, e.clientY, key);
+    });
+
+    // 드래그 재정렬
+    el.addEventListener('dragstart', (e) => {
+      dragTabKey = key;
+      e.dataTransfer.effectAllowed = 'move';
+      setTimeout(() => el.classList.add('dragging'), 0);
+    });
+    el.addEventListener('dragend', () => {
+      el.classList.remove('dragging');
+      dragTabKey = null;
+      tabsEl.querySelectorAll('.drag-target').forEach(t => t.classList.remove('drag-target'));
+    });
+    el.addEventListener('dragover', (e) => {
+      if (!dragTabKey || dragTabKey === key) return;
+      e.preventDefault();
+      tabsEl.querySelectorAll('.drag-target').forEach(t => t.classList.remove('drag-target'));
+      el.classList.add('drag-target');
+    });
+    el.addEventListener('dragleave', () => el.classList.remove('drag-target'));
+    el.addEventListener('drop', (e) => {
+      e.preventDefault();
+      el.classList.remove('drag-target');
+      if (!dragTabKey || dragTabKey === key) return;
+      reorderTab(dragTabKey, key);
     });
   });
 }
 
+function reorderTab(fromKey, toKey) {
+  const entries = [...terms.entries()];
+  const fromIdx = entries.findIndex(([k]) => k === fromKey);
+  const toIdx = entries.findIndex(([k]) => k === toKey);
+  if (fromIdx === -1 || toIdx === -1) return;
+  const [removed] = entries.splice(fromIdx, 1);
+  entries.splice(toIdx, 0, removed);
+  terms.clear();
+  entries.forEach(([k, v]) => terms.set(k, v));
+  renderTabs();
+}
+
+function showTabContextMenu(x, y, key) {
+  const menu = document.getElementById('tab-context-menu');
+  const isSplitTarget = splitKey === key;
+  const canSplit = terms.size > 1 && key !== activeTermKey;
+  const canSplitOrClose = isSplitTarget || canSplit;
+  menu.innerHTML = `
+    <div class="ctx-item ${!canSplitOrClose ? 'ctx-disabled' : ''}" id="ctx-split-item">
+      ${isSplitTarget ? '⊠ 분할 닫기' : '⊞ 오른쪽에 분할해서 보기'}
+    </div>
+    <div class="ctx-item" id="ctx-close-item">✕ 탭 닫기</div>
+  `;
+  menu.style.left = x + 'px';
+  menu.style.top = y + 'px';
+  menu.classList.remove('hidden');
+
+  menu.querySelector('#ctx-split-item').addEventListener('click', () => {
+    if (!canSplitOrClose) return;
+    menu.classList.add('hidden');
+    setSplit(key);
+  });
+  menu.querySelector('#ctx-close-item').addEventListener('click', () => {
+    menu.classList.add('hidden');
+    closeTab(key);
+  });
+}
+
+// 컨텍스트 메뉴 외부 클릭 시 닫기
+document.addEventListener('click', () => {
+  document.getElementById('tab-context-menu')?.classList.add('hidden');
+});
+
 function closeTab(key) {
   window.cc.closePty(key);
   const t = terms.get(key);
-  if (t) {
-    t.term.dispose();
-    t.wrapper.remove();
-    terms.delete(key);
-  }
+  if (t) { t.term.dispose(); t.wrapper.remove(); terms.delete(key); }
+  if (splitKey === key) splitKey = null;
   if (activeTermKey === key) {
     const remaining = [...terms.keys()];
-    if (remaining.length > 0) {
-      activateTab(remaining[remaining.length - 1]);
-    } else {
-      exitTerminalMode();
-    }
+    if (remaining.length > 0) activateTab(remaining[remaining.length - 1]);
+    else exitTerminalMode();
   } else {
+    layoutPanels();
     renderTabs();
+    setTimeout(() => fitAllPanels(), 60);
   }
 }
 
 // 뒤로가기 버튼
 document.getElementById('btn-back').addEventListener('click', exitTerminalMode);
+document.querySelector('#term-panel-split .btn-close-split').addEventListener('click', closeSplit);
+
+// 분할 디바이더 드래그로 비율 조절
+document.getElementById('term-split-divider').addEventListener('mousedown', (e) => {
+  e.preventDefault();
+  const divider = e.currentTarget;
+  divider.classList.add('dragging');
+  const container = document.getElementById('term-container');
+  const startX = e.clientX;
+  const containerWidth = container.getBoundingClientRect().width;
+  const startRatio = splitRatio;
+
+  const onMove = (ev) => {
+    const dx = ev.clientX - startX;
+    splitRatio = Math.min(0.8, Math.max(0.2, startRatio + dx / containerWidth));
+    applySplitRatio();
+  };
+  const onUp = () => {
+    divider.classList.remove('dragging');
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    [activeTermKey, splitKey].filter(Boolean).forEach(k => {
+      const t = terms.get(k);
+      if (t) { t.fitAddon.fit(); window.cc.ptyResize(k, t.term.cols, t.term.rows); }
+    });
+  };
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+});
 
 // 새 탭 버튼: 런처로 돌아가서 세션 선택
 document.getElementById('btn-new-tab').addEventListener('click', () => {
@@ -581,13 +856,11 @@ document.getElementById('btn-new-tab').addEventListener('click', () => {
 
 // 창 리사이즈 시 active term fit
 window.addEventListener('resize', () => {
-  if (termMode && activeTermKey) {
-    const t = terms.get(activeTermKey);
-    if (t) {
-      t.fitAddon.fit();
-      window.cc.ptyResize(activeTermKey, t.term.cols, t.term.rows);
-    }
-  }
+  if (!termMode) return;
+  [activeTermKey, splitKey].filter(Boolean).forEach(k => {
+    const t = terms.get(k);
+    if (t) { t.fitAddon.fit(); window.cc.ptyResize(k, t.term.cols, t.term.rows); }
+  });
 });
 
 // ── opacity 슬라이더 (런처/터미널 모드별 독립 저장) ──────────────

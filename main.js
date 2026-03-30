@@ -136,8 +136,11 @@ function showWindow() {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize;
   win.setPosition(Math.floor((width - 680) / 2), Math.floor(height * 0.2));
   win.setSize(680, 480, false);
+  // 현재 스페이스에 나타나도록 (다른 데스크탑으로 이동하지 않음)
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   win.show();
   win.focus();
+  win.setVisibleOnAllWorkspaces(false, { visibleOnFullScreen: true });
   win.webContents.send('window-shown');
   startPolling();
   sendSessions();  // 즉시 한 번 전송 (최대 800ms 대기 제거)
@@ -210,6 +213,7 @@ app.on('window-all-closed', (e) => {
 // IPC 핸들러
 
 ipcMain.on('hide-window', () => hideWindow());
+ipcMain.on('show-window', () => showWindow());
 
 // 런처 모드에서 blur 처리: renderer에서 현재 모드를 알려줌
 ipcMain.on('blur-hide-if-launcher', () => {
@@ -283,7 +287,7 @@ ipcMain.on('open-pty', (event, session) => {
   const shell = '/bin/zsh';
   // tmux mouse off → xterm에서 텍스트 드래그 선택 가능하게
   const args = session.tmuxSession
-    ? ['-c', `tmux set -g mouse off 2>/dev/null; tmux attach -t "${session.tmuxSession}"`]
+    ? ['-c', `/usr/local/bin/tmux set -g mouse off 2>/dev/null; /usr/local/bin/tmux attach -t "${session.tmuxSession}"`]
     : [];
 
   // tmux 히스토리 사전 전송 (scrollback 용)

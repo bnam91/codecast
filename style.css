@@ -169,17 +169,197 @@ html, body {
   background: transparent;
   position: relative;
 }
+/* ── 터미널 컨테이너 & 패널 ─────────────────────────────── */
 #term-container {
+  display: flex;
   width: 100%;
   height: 100%;
-  padding: 4px;
-  position: relative;
+  -webkit-app-region: no-drag;
 }
+#term-panel-main {
+  position: relative;
+  height: 100%;
+  padding: 4px;
+  flex: 1;
+  min-width: 0;
+}
+#term-panel-split {
+  display: none;
+  position: relative;
+  height: 100%;
+  padding: 4px;
+  flex: 1;
+  min-width: 0;
+  border-left: 1px solid var(--border);
+}
+#term-container.split-mode #term-panel-split { display: block; }
+#term-container.split-mode #term-split-divider { display: flex; }
+#term-panel-main.drag-over,
+#term-panel-split.drag-over { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* 패널 비율 조절 divider */
+#term-split-divider {
+  display: none;
+  width: 4px;
+  height: 100%;
+  cursor: col-resize;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  transition: background 0.15s;
+  -webkit-app-region: no-drag;
+  position: relative;
+  z-index: 5;
+}
+#term-split-divider::after {
+  content: '';
+  width: 1px;
+  height: 100%;
+  background: var(--border);
+  transition: background 0.15s, width 0.15s;
+}
+#term-split-divider:hover::after,
+#term-split-divider.dragging::after {
+  width: 3px;
+  background: var(--accent);
+}
+
 .xterm { height: 100% !important; }
 .xterm-viewport { overflow-y: scroll !important; background-color: rgba(0,0,0,0.01) !important; }
 #term-body { -webkit-app-region: no-drag; }
-#term-container { -webkit-app-region: no-drag; }
-#term-container.drag-over { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* 패널 닫기 버튼 */
+.btn-close-split {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  z-index: 10;
+  background: rgba(255,255,255,0.08);
+  border: none;
+  color: var(--text-secondary);
+  font-size: 13px;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s;
+  -webkit-app-region: no-drag;
+}
+.term-panel:hover .btn-close-split { opacity: 1; }
+.btn-close-split:hover { background: rgba(255,255,255,0.15); color: #fff; }
+
+/* 탭 드래그 */
+.term-tab.dragging { opacity: 0.35; }
+.term-tab.drag-target { background: rgba(139,92,246,0.35); }
+/* 스플릿 활성 탭 */
+.term-tab.split-active { background: rgba(34,197,94,0.15); color: #86efac; }
+.term-tab.split-active.active { background: rgba(139,92,246,0.2); color: #c4b5fd; }
+
+/* 탭 우클릭 컨텍스트 메뉴 */
+#tab-context-menu {
+  position: fixed;
+  background: var(--bg-item);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px;
+  z-index: 9999;
+  min-width: 160px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+#tab-context-menu.hidden { display: none; }
+#tab-context-menu .ctx-item {
+  padding: 8px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+#tab-context-menu .ctx-item:hover { background: var(--bg-hover); }
+#tab-context-menu .ctx-disabled { opacity: 0.35; cursor: default; }
+#tab-context-menu .ctx-disabled:hover { background: none; }
+
+/* ── ! 커맨드 아이템 ─────────────────────────────────────── */
+.command-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.1s;
+  border: 1px solid transparent;
+}
+.command-item:hover, .command-item.selected {
+  background: rgba(139,92,246,0.15);
+  border-color: rgba(139,92,246,0.3);
+}
+.command-icon { font-size: 18px; width: 24px; text-align: center; flex-shrink: 0; }
+.command-info { flex: 1; min-width: 0; }
+.command-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-family: 'Menlo', monospace;
+}
+.command-label {
+  font-weight: 400;
+  color: var(--text-secondary);
+  font-family: -apple-system, sans-serif;
+  margin-left: 6px;
+}
+.command-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.command-arrow {
+  font-size: 16px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* ── 커맨드 실행 팝업 ─────────────────────────────────────── */
+#command-popup {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(10,10,15,0.82);
+  backdrop-filter: blur(12px);
+  border-radius: var(--radius);
+  z-index: 200;
+  opacity: 0;
+  transform: scale(0.94);
+  transition: opacity 0.2s, transform 0.2s;
+  pointer-events: none;
+}
+#command-popup.visible {
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto;
+}
+.command-popup-icon { font-size: 36px; }
+.command-popup-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.command-popup-msg {
+  font-size: 12px;
+  color: var(--accent);
+  letter-spacing: 0.03em;
+}
 
 @keyframes pop-in {
   from { opacity: 0; transform: scale(0.96) translateY(-8px); }
