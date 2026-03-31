@@ -8,6 +8,7 @@ const { getSettings, setSetting } = require('./lib/settings');
 let win = null;
 let pollInterval = null;
 let tray = null;
+let dialogOpen = false; // 다이얼로그 표시 중 blur-hide 방지
 
 // pty 세션 관리
 let pty;
@@ -132,7 +133,7 @@ function createWindow() {
 }
 
 function showWindow() {
-  if (!win) return;
+  if (!win || win.isDestroyed()) return;
   const cursorPos = screen.getCursorScreenPoint();
   const display = screen.getDisplayNearestPoint(cursorPos);
   const { x: dx, y: dy, width, height } = display.workArea;
@@ -149,7 +150,7 @@ function showWindow() {
 }
 
 function hideWindow() {
-  if (!win) return;
+  if (!win || win.isDestroyed()) return;
   win.hide();
   stopPolling();
 }
@@ -171,11 +172,11 @@ function stopPolling() {
 let sendingInProgress = false;
 
 async function sendSessions() {
-  if (!win || !win.isVisible() || sendingInProgress) return;
+  if (!win || win.isDestroyed() || !win.isVisible() || sendingInProgress) return;
   sendingInProgress = true;
   try {
     const sessions = await getSessions();
-    if (win && win.isVisible()) win.webContents.send('sessions-update', sessions);
+    if (win && !win.isDestroyed() && win.isVisible()) win.webContents.send('sessions-update', sessions);
   } catch (e) {
     console.error('sessions error:', e);
   } finally {
@@ -192,7 +193,8 @@ app.whenReady().then(async () => {
 
   // Option+Space 글로벌 단축키
   const registered = globalShortcut.register('Control+Shift+Space', () => {
-    if (win && win.isVisible()) {
+    if (!win || win.isDestroyed()) return;
+    if (win.isVisible()) {
       hideWindow();
     } else {
       showWindow();
@@ -219,15 +221,17 @@ ipcMain.on('show-window', () => showWindow());
 
 // 런처 모드에서 blur 처리: renderer에서 현재 모드를 알려줌
 ipcMain.on('blur-hide-if-launcher', () => {
+  if (dialogOpen) return; // 다이얼로그 표시 중에는 숨기지 않음
   hideWindow();
 });
 
 ipcMain.on('launch-session', async (event, { sessionName, message, launchMode }) => {
   // 동일 이름 세션 존재 여부 확인
   try {
-    execSync(`tmux has-session -t "${sessionName}" 2>/dev/null`);
+    execSync(`/usr/local/bin/tmux has-session -t "${sessionName}" 2>/dev/null`);
     // 존재함 → 경고
-    const { response } = await dialog.showMessageBox(win, {
+    dialogOpen = true;
+    const { response } = await dialog.showMessageBox({
       type: 'warning',
       title: '세션 이미 존재',
       message: `"${sessionName}" 세션이 이미 실행 중입니다.`,
@@ -236,8 +240,9 @@ ipcMain.on('launch-session', async (event, { sessionName, message, launchMode })
       defaultId: 1,
       cancelId: 1,
     });
+    dialogOpen = false;
     if (response === 1) return; // 취소
-    try { execSync(`tmux kill-session -t "${sessionName}" 2>/dev/null`); } catch {}
+    try { execSync(`/usr/local/bin/tmux kill-session -t "${sessionName}" 2>/dev/null`); } catch {}
   } catch {
     // 세션 없음 → 그냥 진행
   }
@@ -296,7 +301,7 @@ ipcMain.on('open-pty', (event, session) => {
   if (session.tmuxSession) {
     try {
       const history = execSync(
-        `tmux capture-pane -p -t "${session.tmuxSession}" -S -500 2>/dev/null`,
+        `/usr/local/bin/tmux capture-pane -p -t "${session.tmuxSession}" -S -500 2>/dev/null`,
         { encoding: 'utf8', timeout: 2000 }
       );
       if (history.trim()) {
@@ -322,11 +327,11 @@ ipcMain.on('open-pty', (event, session) => {
         .replace(/\x1b\[\?1003h/g, '').replace(/\x1b\[\?1003l/g, '')
         .replace(/\x1b\[\?1006h/g, '').replace(/\x1b\[\?1006l/g, '')
         .replace(/\x1b\[\?1015h/g, '').replace(/\x1b\[\?1015l/g, '');
-      if (win) win.webContents.send('pty-data', { key, data: filtered });
+      if (win && !win.isDestroyed()) win.webContents.send('pty-data', { key, data: filtered });
     });
     p.onExit(() => {
       ptySessions.delete(key);
-      if (win) win.webContents.send('pty-exit', key);
+      if (win && !win.isDestroyed()) win.webContents.send('pty-exit', key);
     });
     win.webContents.send('pty-ready', key);
   } catch (e) {
@@ -357,7 +362,7 @@ ipcMain.on('close-all-pty', () => {
 ipcMain.on('open-in-terminal', (_, session) => {
   const tmux = session.tmuxSession;
   if (!tmux) return;
-  const cmd = `tmux attach -t \\"${tmux}\\"`;
+  const cmd = `/usr/local/bin/tmux attach -t \\"${tmux}\\"`;
   try {
     // iTerm 존재 확인
     const itermId = execSync(`osascript -e 'id of application "iTerm"' 2>/dev/null`).toString().trim();
@@ -384,21 +389,26 @@ ipcMain.on('open-in-terminal', (_, session) => {
 
 // ── 세션 종료 ──────────────────────────────────────────────
 ipcMain.handle('confirm-kill', async (_, name) => {
-  const { response } = await dialog.showMessageBox(win, {
-    type: 'warning',
-    title: '세션 종료',
-    message: `"${name}" 세션을 종료하시겠습니까?`,
-    buttons: ['종료', '취소'],
-    defaultId: 1,
-    cancelId: 1,
-  });
-  return response === 0;
+  dialogOpen = true;
+  try {
+    const { response } = await dialog.showMessageBox({
+      type: 'warning',
+      title: '세션 종료',
+      message: `"${name}" 세션을 종료하시겠습니까?`,
+      buttons: ['종료', '취소'],
+      defaultId: 1,
+      cancelId: 1,
+    });
+    return response === 0;
+  } finally {
+    dialogOpen = false;
+  }
 });
 
 ipcMain.on('kill-session', (_, { pid, tmuxSession }) => {
   try {
     if (tmuxSession) {
-      execSync(`tmux kill-session -t "${tmuxSession}" 2>/dev/null`);
+      execSync(`/usr/local/bin/tmux kill-session -t "${tmuxSession}" 2>/dev/null`);
     } else if (pid) {
       process.kill(pid, 'SIGTERM');
     }
