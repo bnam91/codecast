@@ -125,6 +125,16 @@ function createWindow() {
 
   win.loadFile('index.html');
 
+  // 외부 URL로 navigate 차단 (터미널 안 링크 클릭 등)
+  win.webContents.on('will-navigate', (event, url) => {
+    if (!url.startsWith('file://')) {
+      event.preventDefault();
+    }
+  });
+
+  // 새 창/팝업으로 열리는 외부 URL도 차단
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+
   win.on('blur', () => {
     // 터미널 모드일 때는 blur로 숨기지 않음
     // 런처 모드일 때만 숨김
