@@ -61,6 +61,7 @@ html, body {
 }
 #terminal-view.hidden { display: none; }
 
+
 #term-header {
   display: flex;
   align-items: center;
@@ -71,6 +72,13 @@ html, body {
   border-bottom: 1px solid var(--border);
   -webkit-app-region: drag;
   flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+body.fullscreen #terminal-view {
+  transition: padding-top 0.15s ease;
+}
+body.fullscreen.menubar-visible #terminal-view {
+  padding-top: 25px;
 }
 
 #term-tabs {
@@ -799,6 +807,28 @@ html, body {
   font-size: 11px;
   color: var(--text-secondary);
 }
+
+/* 토글 스위치 */
+.settings-toggle-switch { display: flex; align-items: center; cursor: pointer; }
+.settings-toggle-switch input { display: none; }
+.toggle-track {
+  width: 36px; height: 20px;
+  background: var(--border);
+  border-radius: 10px;
+  position: relative;
+  transition: background 0.2s;
+}
+.toggle-track::after {
+  content: '';
+  position: absolute;
+  width: 16px; height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  top: 2px; left: 2px;
+  transition: transform 0.2s;
+}
+.settings-toggle-switch input:checked + .toggle-track { background: var(--accent); }
+.settings-toggle-switch input:checked + .toggle-track::after { transform: translateX(16px); }
 
 .settings-toggle-group {
   display: flex;

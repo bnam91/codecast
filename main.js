@@ -204,7 +204,9 @@ app.whenReady().then(async () => {
   // Option+Space 글로벌 단축키
   const registered = globalShortcut.register('Control+Shift+Space', () => {
     if (!win || win.isDestroyed()) return;
-    if (win.isVisible()) {
+    if (win.isFullScreen()) {
+      win.focus(); // 풀스크린 → 해당 데스크탑으로 이동
+    } else if (win.isVisible()) {
       hideWindow();
     } else {
       showWindow();
@@ -433,6 +435,24 @@ ipcMain.handle('set-setting', (_, key, value) => setSetting(key, value));
 
 // ── 윈도우 크기 모드 전환 ──────────────────────────────────
 
+ipcMain.on('toggle-fullscreen', () => {
+  if (!win || win.isDestroyed()) return;
+  const next = !win.isFullScreen();
+  win.setFullScreen(next);
+  win.webContents.send('fullscreen-changed', next);
+  // 풀스크린 해제 시 터미널 모드 크기로 복원
+  if (!next) {
+    const display = screen.getDisplayMatching(win.getBounds());
+    const { x: dx, y: dy, width, height } = display.workArea;
+    const settings = getSettings();
+    const [w, h] = settings.terminalLarge
+      ? [Math.floor(width * 0.85), Math.floor(height * 0.85)]
+      : [1000, 680];
+    win.setSize(w, h, true);
+    win.setPosition(dx + Math.floor((width - w) / 2), dy + Math.floor((height - h) / 2), true);
+  }
+});
+
 ipcMain.on('set-opacity', (_, alpha) => {
   if (win) win.setOpacity(Math.max(0.1, Math.min(1.0, alpha)));
 });
@@ -448,10 +468,14 @@ ipcMain.on('set-launcher-mode', () => {
 });
 
 ipcMain.on('set-terminal-mode', () => {
-  if (!win) return;
+  if (!win || win.isDestroyed()) return;
   const display = screen.getDisplayMatching(win.getBounds());
   const { x: dx, y: dy, width, height } = display.workArea;
+  const settings = getSettings();
+  const [w, h] = settings.terminalLarge
+    ? [Math.floor(width * 0.85), Math.floor(height * 0.85)]
+    : [1000, 680];
   win.setResizable(true);
-  win.setSize(1000, 680, true);
-  win.setPosition(dx + Math.floor((width - 1000) / 2), dy + Math.floor(height * 0.15), true);
+  win.setSize(w, h, true);
+  win.setPosition(dx + Math.floor((width - w) / 2), dy + Math.floor((height - h) / 2), true);
 });

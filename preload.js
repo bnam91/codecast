@@ -46,4 +46,8 @@ contextBridge.exposeInMainWorld('cc', {
 
   // 외부 터미널로 열기
   openInTerminal: (session) => ipcRenderer.send('open-in-terminal', session),
+
+  // 풀스크린 전환
+  toggleFullscreen: () => ipcRenderer.send('toggle-fullscreen'),
+  onFullscreenChanged: (cb) => ipcRenderer.on('fullscreen-changed', (_, val) => cb(val)),
 });

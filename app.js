@@ -265,6 +265,7 @@ document.addEventListener('keydown', (e) => {
       break;
 
     case 'Enter':
+      if (e.isComposing) break; // 한국어 IME 조합 중 Enter 무시
       e.preventDefault();
       if (e.metaKey) {
         if (selectedIndex >= 0 && filtered[selectedIndex] && searchQuery.trim()) {
@@ -849,10 +850,25 @@ document.getElementById('term-split-divider').addEventListener('mousedown', (e) 
   document.addEventListener('mouseup', onUp);
 });
 
-// 새 탭 버튼: 런처로 돌아가서 세션 선택
+// 새 탭 버튼: 풀스크린 전환
 document.getElementById('btn-new-tab').addEventListener('click', () => {
-  exitTerminalMode();
+  window.cc.toggleFullscreen();
 });
+
+window.cc.onFullscreenChanged((isFullscreen) => {
+  document.body.classList.toggle('fullscreen', isFullscreen);
+  if (!isFullscreen) document.body.classList.remove('menubar-visible');
+});
+
+document.addEventListener('mousemove', (e) => {
+  if (!document.body.classList.contains('fullscreen')) return;
+  if (e.clientY < 70) {
+    document.body.classList.add('menubar-visible');
+  } else if (e.clientY > 80) {
+    document.body.classList.remove('menubar-visible');
+  }
+});
+
 
 // 창 리사이즈 시 active term fit
 window.addEventListener('resize', () => {
@@ -907,6 +923,7 @@ function openSettings() {
   settingsOpen = true;
   settingsModal.classList.remove('hidden');
   applySettingsToggle();
+  document.getElementById('terminal-large-toggle').checked = appSettings.terminalLarge ?? false;
 }
 
 function closeSettings() {
@@ -929,6 +946,11 @@ launchModeToggle.addEventListener('click', async (e) => {
   if (value === appSettings.launchMode) return;
   appSettings = await window.cc.setSetting('launchMode', value);
   applySettingsToggle();
+});
+
+document.getElementById('terminal-large-toggle').addEventListener('change', async (e) => {
+  appSettings.terminalLarge = e.target.checked;
+  await window.cc.setSetting('terminalLarge', e.target.checked);
 });
 
 // ── 유틸 ──────────────────────────────────────────────────
