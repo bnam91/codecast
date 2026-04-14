@@ -48,6 +48,9 @@ const launchModeToggle = document.getElementById('launch-mode-toggle');
 // 설정 로드
 window.cc.getSettings().then(s => {
   appSettings = s;
+  // 저장된 투명도 복원
+  launcherOpacityVal = appSettings.opacityLauncher ?? 82;
+  terminalOpacityVal = appSettings.opacityTerminal ?? 92;
   applySettingsToggle();
 });
 
@@ -903,11 +906,13 @@ function enterLauncherOpacity() {
 document.getElementById('opacity-slider').addEventListener('input', (e) => {
   terminalOpacityVal = parseInt(e.target.value);
   applyOpacity(terminalOpacityVal);
+  window.cc.setSetting('opacityTerminal', terminalOpacityVal);
 });
 
 document.getElementById('opacity-slider-launcher').addEventListener('input', (e) => {
   launcherOpacityVal = parseInt(e.target.value);
   applyOpacity(launcherOpacityVal);
+  window.cc.setSetting('opacityLauncher', launcherOpacityVal);
 });
 
 // ── 설정 모달 ──────────────────────────────────────────────

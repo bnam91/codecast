@@ -10,6 +10,14 @@ let pollInterval = null;
 let tray = null;
 let dialogOpen = false; // 다이얼로그 표시 중 blur-hide 방지
 
+// macOS NSWindow native collection behavior
+let NSWindow = null;
+try {
+  NSWindow = require('nswindow-napi');
+} catch (e) {
+  console.error('nswindow-napi 로드 실패:', e.message);
+}
+
 // pty 세션 관리
 let pty;
 try {
@@ -149,11 +157,19 @@ function showWindow() {
   const { x: dx, y: dy, width, height } = display.workArea;
   win.setPosition(dx + Math.floor((width - 680) / 2), dy + Math.floor(height * 0.2));
   win.setSize(680, 480, false);
-  // 현재 스페이스에 나타나도록 (다른 데스크탑으로 이동하지 않음)
-  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+
+  if (NSWindow) {
+    // NSWindowCollectionBehaviorMoveToActiveSpace: 단축키 누른 현재 스페이스에 나타나고, 스페이스 전환 시 따라오지 않음
+    const MoveToActiveSpace = NSWindow.GetNSWindowCollectionBehaviorMoveToActiveSpace();
+    NSWindow.SetCollectionBehavior(win.getNativeWindowHandle(), MoveToActiveSpace);
+  } else {
+    // fallback: allWorkspaces 방식
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  }
+
+  app.focus({ steal: true });
   win.show();
   win.focus();
-  win.setVisibleOnAllWorkspaces(false, { visibleOnFullScreen: true });
   win.webContents.send('window-shown');
   startPolling();
   sendSessions();  // 즉시 한 번 전송 (최대 800ms 대기 제거)
